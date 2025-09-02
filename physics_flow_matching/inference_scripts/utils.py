@@ -13,6 +13,9 @@ def inpainting2(x_hat, **kwargs):
     slice_x, slice_y = slice(kwargs["sx"],kwargs["ex"]), slice(kwargs["sy"],kwargs["ey"]),
     return x_hat[..., slice_x, slice_y]
 
+def identity(x_hat, **kwargs):
+    return x_hat
+
 def partial_wall_pres_forward(x_hat, **kwargs):
     det_model = kwargs["model"]
     x_pred = det_model(x_hat)
@@ -212,7 +215,7 @@ def ssag_sample(first_momt :torch.Tensor, second_momt: torch.Tensor, dev_matrix:
         return (mean + term1 + term2).view(sample_view) if not parallel else (mean + term1 + term2.T).view(sample_view)
     
 MEAS_MODELS = {"inpainting": inpainting2, "partial_wall_pres_forward": partial_wall_pres_forward,
-               "coarse_wall_pres_forward": coarse_wall_pres_forward, "inpainting_2": inpainting}
+               "coarse_wall_pres_forward": coarse_wall_pres_forward, "inpainting_2": inpainting, "identity": identity}
 
 #------------------------------------------------------------------------------------------#
 def calculate_pad_size(input_tensor: torch.Tensor, patch_size) -> tuple:

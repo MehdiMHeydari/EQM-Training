@@ -64,3 +64,17 @@ class EM_MLP_Wrapper(MLP):
             return super().forward(th.concat([x, y], dim=-1))
         else:
             return super().forward(x)
+        
+class Avg_MLP_Wrapper(MLP):
+    def __init__(self, input_dim, hidden_dims, output_dim, act1=th.relu, act2=None):
+        super(Avg_MLP_Wrapper, self).__init__(input_dim, hidden_dims, output_dim, act1, act2)
+
+    def forward(self, r, t, x, y=None):
+        if t.dim() != x.dim():
+            t = t.expand_as(x[..., 0:1])
+        if r.dim() != x.dim():
+            r = r.expand_as(x[..., 0:1])
+        if y is not None:
+            return super().forward(th.concat([r, t, x, y], dim=-1))
+        else:
+            return super().forward(th.concat([r, t, x], dim=-1))

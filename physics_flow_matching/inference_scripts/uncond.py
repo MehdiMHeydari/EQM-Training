@@ -304,7 +304,7 @@ def infer_patched(dims_of_img, patch_size, total_samples, samples_per_batch,
                 x = recombine_non_overlapping_patches(x_patchified[:, :ignore_index], dims_of_img, (pad_h, pad_w), (offset_x, offset_y), patch_size)
                 traj.append(x)
                 
-        out = traj.detach().cpu().numpy() if all_traj else traj[-1].detach().cpu().numpy() 
+        out = np.stack([tra.detach().cpu().numpy() for tra in traj]) if all_traj else traj[-1].detach().cpu().numpy() 
         
         if scale:
             assert m is not None and std is not None, "Provide output scaling for generated samples"
@@ -321,3 +321,123 @@ def infer_patched(dims_of_img, patch_size, total_samples, samples_per_batch,
         else:
             return np.concatenate(samples_list, axis=1)       
 #    return np.concatenate(samples_list) if len(samples_list) > 1 else samples_list[0]
+
+def infer_alt_joint(dims_of_img, total_samples, samples_per_batch,
+                cfm_model, t_start, t_end,
+                scale, device, m=None, std=None, t_steps=200, use_heavy_noise=False, 
+                y = None, y0_provided = False, y0= None, all_traj=False, **kwargs):
+
+    y0_ = y0.clone().detach() if y0_provided else None
+    cfm_model_ = lambda t, x : cfm_model(t, x, y=y)
+        
+    samples_list = []
+    
+    time = torch.linspace(t_start, t_end, t_steps).to(device)
+    dt = time[1] - time[0]
+    
+    for i in tqdm(range(total_samples//samples_per_batch)):
+        
+        samples_size = samples_per_batch
+        if i == total_samples//samples_per_batch - 1:
+            samples_size = samples_per_batch + total_samples%samples_per_batch
+        samples_size = (samples_size,) + dims_of_img 
+    
+        with torch.no_grad():
+            if not use_heavy_noise and not y0_provided:
+                y0 = torch.randn(samples_size, device=device)
+            elif use_heavy_noise:
+                nu = kwargs["nu"]
+                chi2 = Chi2(torch.tensor([nu]))
+                
+                z = torch.randn(samples_size, device=device)
+                kappa = chi2.sample((z.shape[0],)).to(z.device)/nu
+                for _ in range(len(dims_of_img)-1):
+                    kappa = kappa[..., None]
+                y0 = z/torch.sqrt(kappa)
+            elif y0_provided:
+                y0 = (y0_[i*samples_size[0] : (i+1)*samples_size[0]]).clone().detach()
+        
+            traj = []
+            x = y0.clone()
+            for t in time[:-1]:
+                v = cfm_model_(t, x)
+                x[:, 3:] = x[:, 3:] +  v[:, 3:]*dt
+                traj.append(x.detach().cpu().numpy())
+
+
+        out =  np.stack([tra for tra in traj]) if all_traj else traj[-1]
+        
+        if scale:
+            assert m is not None and std is not None, "Provide output scaling for generated samples"
+            out *= std
+            out += m
+            
+        samples_list.append(out)
+
+    if len(samples_list) == 1:
+        return samples_list[0]
+    else:
+        if not all_traj:
+            return np.concatenate(samples_list)
+        else:
+            return np.concatenate(samples_list, axis=1)
+        
+
+def infer_avg_vel(dims_of_img, total_samples, samples_per_batch,
+                cfm_model, t_start, t_end,
+                scale, device, m=None, std=None, t_steps=3, use_heavy_noise=False, 
+                y = None, y0_provided = False, y0= None, all_traj=False, **kwargs):
+
+    y0_ = y0.clone().detach() if y0_provided else None
+    cfm_model_ = lambda r, t, x : cfm_model(r, t, x, y=y)
+        
+    samples_list = []
+    
+    time = torch.linspace(t_start, t_end, t_steps).to(device)
+    dt = time[1] - time[0]
+    
+    for i in tqdm(range(total_samples//samples_per_batch)):
+        
+        samples_size = samples_per_batch
+        if i == total_samples//samples_per_batch - 1:
+            samples_size = samples_per_batch + total_samples%samples_per_batch
+        samples_size = (samples_size,) + dims_of_img 
+    
+        with torch.no_grad():
+            if not use_heavy_noise and not y0_provided:
+                y0 = torch.randn(samples_size, device=device)
+            elif use_heavy_noise:
+                nu = kwargs["nu"]
+                chi2 = Chi2(torch.tensor([nu]))
+                
+                z = torch.randn(samples_size, device=device)
+                kappa = chi2.sample((z.shape[0],)).to(z.device)/nu
+                for _ in range(len(dims_of_img)-1):
+                    kappa = kappa[..., None]
+                y0 = z/torch.sqrt(kappa)
+            elif y0_provided:
+                y0 = (y0_[i*samples_size[0] : (i+1)*samples_size[0]]).clone().detach()
+        
+            traj = [y0.detach().cpu().numpy()]
+            x = y0.clone()
+            for t in range(t_steps - 1):
+                x = x + cfm_model_(time[t+1], time[t], x) * (time[t+1] - time[t])
+                traj.append(x.detach().cpu().numpy())
+
+
+        out =  np.stack([tra for tra in traj]) if all_traj else traj[-1]
+        
+        if scale:
+            assert m is not None and std is not None, "Provide output scaling for generated samples"
+            out *= std
+            out += m
+            
+        samples_list.append(out)
+
+    if len(samples_list) == 1:
+        return samples_list[0]
+    else:
+        if not all_traj:
+            return np.concatenate(samples_list)
+        else:
+            return np.concatenate(samples_list, axis=1)

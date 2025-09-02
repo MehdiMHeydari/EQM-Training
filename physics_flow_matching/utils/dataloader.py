@@ -386,7 +386,7 @@ def get_loaders_wp_fm(wall_pres_path, nx, nz, nstep, batch_size, dataset_, patch
     
     data = read_data(wall_pres_path, nx, nz, nstep)
     
-    data = data[spatial_start:spatial_cutoff] if spatial_cutoff is not None else data[spatial_start:]
+    data = data[spatial_start:spatial_cutoff] if spatial_cutoff is not None else data[spatial_start:-1, :-1]
 
     m, s = data.mean(), data.std()
     

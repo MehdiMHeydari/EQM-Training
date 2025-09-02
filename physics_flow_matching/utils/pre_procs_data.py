@@ -27,6 +27,19 @@ def get_batch_cont(FM : Union[FlowMatcher, RectifiedFlow, ConditionalFlowMatcher
         return t[..., None], xt, ut, ut_cont, (noise, noise_cont)
     return t[..., None], xt, ut, ut_cont
 
+def get_batch_avg(FM : RectifiedFlow, x0 : th.Tensor, x1 : th.Tensor):
+
+    t, xt, ut = FM.sample_location_and_conditional_flow(x0, x1, return_noise=False)
+    r = th.empty_like(t)
+    # r[:int(t.shape[0]*0.25)] = th.rand(int(t.shape[0]*0.25)).to(t.device)
+    # r[int(t.shape[0]*0.25):] = t[int(t.shape[0]*0.25):] * th.rand(t.shape[0] - int(t.shape[0]*0.25)).to(t.device)
+    r  = th.rand(t.shape).to(t.device)
+    r = th.where(r > t, r, t)
+
+    return t[..., None], r[..., None], xt, ut
+
+#######################################################################################################################
+
 def get_grad_energy(x, model, retain_graph=False, create_graph=False):
     with th.enable_grad():
         x = x.requires_grad_(True)
