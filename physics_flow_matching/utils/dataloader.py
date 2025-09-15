@@ -320,6 +320,12 @@ def get_joint_loaders(vf_paths, batch_size, dataset_, contrastive=False):
        
     return train_dataloader
 
+def get_stitching_loaders(vf_paths, data_size, batch_size, dataset_):
+    
+    train_dataloader = DataLoader(dataset_(vf_paths, data_size), batch_size=batch_size, shuffle=True)
+       
+    return train_dataloader
+
 def get_loaders_vf_fm(vf_paths, batch_size, dataset_, jump=1, all_vel=True, spatial_cutoff=None, z_spatial_cutoff=None, time_cutoff=None, patch_dims=None,
                       multi_patch=False, zero_pad=True):
     
@@ -373,18 +379,28 @@ def get_loaders_vf_fm(vf_paths, batch_size, dataset_, jump=1, all_vel=True, spat
        
     return train_dataloader
 
-def get_loaders_wp_fm(wall_pres_path, nx, nz, nstep, batch_size, dataset_, patch_dims, multi_patch, zero_pad, spatial_start=0, spatial_cutoff=None, temporal_cutoff=None):
+def get_loaders_wp_fm(wall_pres_path, nx, nz, nstep, batch_size, dataset_, patch_dims, multi_patch, zero_pad, spatial_start=0, spatial_cutoff=None,
+                      temporal_cutoff=None, re=None, not_dat_file=False):
     
-    def norm(d, m, s):
-        return (d-m)/s
+    inner_scaling = {180 : 0.0006499372706408232/1.5, 500: 0.0004886492934049004, 1000: 0.00041547712259805273}
 
-    data = []
+    def norm(d, m, s):
+        if re is not None:
+            fluc = (d - m)
+            fluc = fluc/inner_scaling[re]
+            fluc = fluc/fluc.std()
+            return fluc
+        else:
+            return (d-m)/s
     
     def read_data(file_path, nx, nz, nstep):
         data  = np.fromfile(file_path, dtype=np.float64, count=nx*nz*nstep).reshape((nx, nz, nstep), order='F')
         return data
     
-    data = read_data(wall_pres_path, nx, nz, nstep)
+    if not_dat_file:
+        data = np.load(wall_pres_path) # shape as (nx, nz, nstep)
+    else:
+        data = read_data(wall_pres_path, nx, nz, nstep)
     
     data = data[spatial_start:spatial_cutoff] if spatial_cutoff is not None else data[spatial_start:-1, :-1]
 

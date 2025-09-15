@@ -116,7 +116,7 @@ def main(config_path):
         model.eval();
         
 
-    infer_grad_3 = partial(infer_grad_2, model=model, swag=False)
+    infer_grad_3 = partial(infer_grad_2, model=model if need_swag_model else None, swag=False)
 
     if experimental:
         infer_grad_4 = partial(infer_grad_3, 

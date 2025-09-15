@@ -166,7 +166,21 @@ def d_flow(
             loss = loss + reg_scale*reg2(initial_point)
         loss.sum().backward()
         return loss.sum()
-
+    
+    # def avg_vel_closure(): ## optimization using source velocity
+    #     time = ode_solver_kwargs["t"]
+    #     time = time.to(initial_point)
+    #     t_steps = len(time)
+    #     optimizer.zero_grad()
+    #     for t in range(t_steps - 1):
+    #         if t == 0:
+    #             x = initial_point + flow_model(time[t+1], time[t], initial_point) * (time[t+1] - time[t])
+    #         else:
+    #             x = x + flow_model(time[t+1], time[t], x) * (time[t+1] - time[t])
+    #     loss = cost_func(measurement_func, x, measurement, **kwargs)
+    #     loss.sum().backward()
+    #     return loss.sum()
+    
     optimizer = optimizer([initial_point], **optimizer_kwargs)
     
     pbar = tqdm(list(range(max_iterations)))
@@ -175,11 +189,15 @@ def d_flow(
     # loss_prev = torch.tensor(1e6)
     for _ in pbar: #while (loss).item()/initial_point.shape[0] > 1e-3  and (loss - loss_prev).abs().item()/loss_prev.item() > 1e-3:
     #    loss_prev = loss.clone()
-       loss = optimizer.step(closure)
+       loss = optimizer.step(closure) #optimizer.step(avg_vel_closure)
        pbar.set_postfix({'distance': loss.item()}, refresh=False) #print("distance:", loss.item())#
 
     if not pretrain:
-        return (ode_solver(flow_model, initial_point, **ode_solver_kwargs)[-1] if not full_output else ode_solver(flow_model, initial_point, **ode_solver_kwargs)).detach().cpu().numpy()
+        with torch.no_grad():
+            ## inference post optimization
+        #     x = initial_point + flow_model(torch.tensor(.5).to(initial_point), torch.tensor(0.).to(initial_point), initial_point)*0.5
+        #     return (x + flow_model(torch.tensor(1.).to(initial_point), torch.tensor(0.5).to(initial_point), x)*0.5).detach().cpu().numpy()
+            return (ode_solver(flow_model, initial_point, **ode_solver_kwargs)[-1] if not full_output else ode_solver(flow_model, initial_point, **ode_solver_kwargs)).detach().cpu().numpy()
     else: 
         return initial_point.detach().cpu()
 

@@ -548,7 +548,59 @@ class Patched_Dataset_W(Dataset):
         x1 = np.stack([x1, x_coord, z_coord], axis=0)
         
         return np.empty_like(x1), x1
-
+    
+class Stitched_Dataset_1(Dataset):
+    
+    def __init__(self, vf_paths, N):
+        super().__init__()
+        self.vf_paths = vf_paths
+        self.N = N
+        self.std_list = [None]*len(vf_paths)
+        
+    def load_data(self, y_index): # load only the velocity planes in consideration in memory 
+        assert y_index != 0 and y_index != len(self.vf_paths) - 1, "can only take intermediate indices" 
+        data = [] 
+        for i in range(-1, 2):
+            intr = np.load((self.vf_paths[y_index + i]))
+            if self.std_list[y_index + i] is not None:
+                data.append(intr/self.std_list[y_index + i])
+            else:
+                std = intr.std()
+                self.std_list[y_index + i] = std
+                data.append(intr/std)
+        data = np.concat(data, axis=1)
+        setattr(self, "data", data.astype(np.float32))
+        
+    def __len__(self):
+        return  self.N
+    
+    def __getitem__(self, index):
+        
+        x1 = self.data[index]
+        
+        return np.empty_like(x1), x1
+    
+class Stitched_Dataset_2(Dataset):
+    
+    def __init__(self, vf_paths, N):
+        super().__init__()
+        self.vf_paths = vf_paths
+        self.N = N
+        self._load_all_data()
+        
+    def _load_all_data(self):
+        data = np.concat([np.load(f) for f in self.vf_paths], axis=1)
+        data = data/data.std(axis=(0,2,3), keepdims=True)
+        setattr(self, "data", data.astype(np.float32))
+        
+    def __len__(self):
+        return  self.N
+    
+    def __getitem__(self, index):
+        
+        x1 = self.data[index]
+        return np.empty_like(x1), x1
+        
 DATASETS = {"WP":None,"KS":None, "WPWS":None, "WPWS_DD":None,
             "Joint" : Joint,
             "VF_FM":VF_FM,
@@ -559,7 +611,7 @@ DATASETS = {"WP":None,"KS":None, "WPWS":None, "WPWS_DD":None,
             "VFVF":VFVF, "VFVF_P":VFVF_patchify,
             "VFVF_P2": VFVF_patchify_2,
             "WMAR":WMAR, "WMARR":WMAR_rollout, "Patched":Patched_Dataset,
-            "Patched_W":Patched_Dataset_W}
+            "Patched_W":Patched_Dataset_W, "Stitched": Stitched_Dataset_2}
 
 
 # class WPWS_Sensor(Dataset):

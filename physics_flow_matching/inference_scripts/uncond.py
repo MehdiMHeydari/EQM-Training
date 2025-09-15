@@ -441,3 +441,73 @@ def infer_avg_vel(dims_of_img, total_samples, samples_per_batch,
             return np.concatenate(samples_list)
         else:
             return np.concatenate(samples_list, axis=1)
+        
+def infer_stitched(len_of_traj, start, end, dims_of_img, total_samples, samples_per_batch,
+                cfm_model, t_start, t_end,
+                scale, device, m=None, std=None, t_steps=100, use_heavy_noise=False, 
+                y = None, y0_provided = False, y0= None, all_traj=False, **kwargs):
+    
+    y0_ = y0.clone().detach() if y0_provided else None
+    cfm_model_ = lambda t, x : cfm_model(t, x, y=y)
+        
+    samples_list = []
+    
+    time = torch.linspace(t_start, t_end, t_steps).to(device)
+    dt = time[1] - time[0]
+    
+    for i in tqdm(range(total_samples//samples_per_batch)):
+        
+        samples_size = samples_per_batch
+        if i == total_samples//samples_per_batch - 1:
+            samples_size = samples_per_batch + total_samples%samples_per_batch
+        samples_size = (len_of_traj * samples_size,) + dims_of_img 
+    
+        with torch.no_grad():
+            if not use_heavy_noise and not y0_provided:
+                y0 = torch.randn(samples_size, device=device)
+            elif use_heavy_noise:
+                nu = kwargs["nu"]
+                chi2 = Chi2(torch.tensor([nu]))
+                
+                z = torch.randn(samples_size, device=device)
+                kappa = chi2.sample((z.shape[0],)).to(z.device)/nu
+                for _ in range(len(dims_of_img)-1):
+                    kappa = kappa[..., None]
+                y0 = z/torch.sqrt(kappa)
+            elif y0_provided:
+                y0 = (y0_[i*samples_size[0] : (i+1)*samples_size[0]]).clone().detach()
+        
+            traj = [y0.detach().cpu().numpy()]
+            x = y0.clone()
+            
+            for t in time:
+                for index, x_ind in enumerate(x):
+                    
+                    if index == 0:
+                        x_inp = torch.cat([start, x_ind, x[index + 1]], dim=0)[None]
+                    elif index == len_of_traj - 1:
+                        x_inp = torch.cat([x[index -1], x_ind, end], dim=0)[None]
+                    else:
+                        x_inp = torch.cat([x[index -1], x_ind, x[index + 1]], dim=0)[None]
+                        
+                    x_ind = x_ind + (cfm_model_(t, x_inp)*dt)[0]
+                    x[index] = x_ind
+                    
+                traj.append(x.detach().cpu().numpy())
+                
+        out =  np.stack([tra for tra in traj]) if all_traj else traj[-1]
+        
+        if scale:
+            assert m is not None and std is not None, "Provide output scaling for generated samples"
+            out *= std
+            out += m
+            
+        samples_list.append(out)
+
+    if len(samples_list) == 1:
+        return samples_list[0]
+    else:
+        if not all_traj:
+            return np.stack(samples_list)
+        else:
+            return np.stack(samples_list, axis=1)

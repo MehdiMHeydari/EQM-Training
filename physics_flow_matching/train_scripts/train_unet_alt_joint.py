@@ -6,14 +6,12 @@ import os
 import torch as th
 import numpy as np
 from physics_flow_matching.unet.unet import UNetModelWrapper as UNetModel
-from physics_flow_matching.utils.dataloader import get_loaders_wp_fm
+from physics_flow_matching.utils.dataloader import get_joint_loaders
 from physics_flow_matching.utils.dataset import DATASETS
-from physics_flow_matching.utils.train_patched_wp import train_model
+from physics_flow_matching.utils.train_alt_joint import train_model
 from physics_flow_matching.utils.obj_funcs import DD_loss
-from physics_flow_matching.utils.finetune import finetune_network
 from torchcfm.conditional_flow_matching import FlowMatcher
 from torch.optim import Adam
-from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.tensorboard import SummaryWriter
 
 def create_dir(path, config):
@@ -40,20 +38,10 @@ def main(config_path):
     
     writer = SummaryWriter(log_dir=logpath)
     
-    train_dataloader = get_loaders_wp_fm(wall_pres_path=config.dataloader.datapath,
-                                        nx=config.dataloader.nx,
-                                        nz=config.dataloader.nz,
-                                        nstep=config.dataloader.nstep,
+    train_dataloader = get_joint_loaders(vf_paths=config.dataloader.datapath,
                                         batch_size=config.dataloader.batch_size,
                                         dataset_=DATASETS[config.dataloader.dataset],
-                                        patch_dims=config.dataloader.patch_dims if hasattr(config.dataloader, 'patch_dims') else None,
-                                        multi_patch=config.dataloader.multi_patch if hasattr(config.dataloader, 'multi_patch') else False,
-                                        zero_pad=config.dataloader.zero_pad if  hasattr(config.dataloader, 'zero_pad') else True,
-                                        spatial_start=config.dataloader.spatial_start if  hasattr(config.dataloader, 'spatial_start') else 0,
-                                        spatial_cutoff =config.dataloader.cutoff if  hasattr(config.dataloader, 'cutoff') else None,
-                                        temporal_cutoff=config.dataloader.temporal_cutoff if  hasattr(config.dataloader, 'temporal_cutoff') else None,
-                                        re = config.dataloader.re if  hasattr(config.dataloader, 're') else None,
-                                        not_dat_file= config.dataloader.not_dat_file if  hasattr(config.dataloader, 'not_dat_file') else False)
+                                        contrastive=config.dataloader.contrastive)
         
     model = UNetModel(dim=config.unet.dim,
                       channel_mult=config.unet.channel_mult,
@@ -65,23 +53,17 @@ def main(config_path):
                       use_new_attention_order=config.unet.new_attn,
                       use_scale_shift_norm=config.unet.film,
                       class_cond= config.unet.class_cond if hasattr(config.unet, 'class_cond') else False,
-                      num_classes=config.unet.num_classes if hasattr(config.unet, 'num_classes') else None,
+                      num_classes=config.unet.num_classes if hasattr(config.unet, 'num_classes') else None
                       )
 
     model.to(dev)
- 
-    finetune = config.finetune.do_finetune if hasattr(config.finetune, 'do_finetune') else False  
-    
-    if finetune:
-        model = finetune_network(model)   
     
     FM = FlowMatcher(sigma=config.FM.sigma,
                      add_heavy_noise=config.FM.add_heavy_noise if hasattr(config.FM, 'add_heavy_noise') else False,
                      nu=config.FM.nu if hasattr(config.FM, 'nu') else th.inf)
-       
-    optim = Adam(filter(lambda p : p.requires_grad, model.parameters()), lr=config.optimizer.lr, weight_decay= 0. if config.finetune.weight_decay is None else config.finetune.weight_decay) 
-            #Adam(model.input_blocks[:3].parameters(), lr=config.optimizer.lr, weight_decay= 0. if not finetune else config.finetune.weight_decay) ## exp_6
-     
+    
+    optim = Adam(model.parameters(), lr=config.optimizer.lr)
+    
     sched = None#CosineAnnealingLR(optim, config.scheduler.T_max, config.scheduler.eta_min)
     
     loss_fn = DD_loss

@@ -1,8 +1,8 @@
 import torch as th
 from torch import nn, optim
 from torch.utils.tensorboard import SummaryWriter
-from functools import partial
-from physics_flow_matching.utils.pre_procs_data import get_batch_avg
+from physics_flow_matching.utils.pre_procs_data import get_batch
+from numpy.random import rand
 
 def restart_func(restart_epoch, path, model, optimizer, sched=None):
     assert restart_epoch != None, "restart epoch not initialized!"
@@ -28,7 +28,10 @@ def train_model(model: nn.Module, FM, train_dataloader,
                 num_epochs, print_epoch_int,
                 save_epoch_int, print_within_epoch_int, path,
                 device,
-                restart=False, restart_epoch=None):
+                return_noise=False,
+                class_cond=False,
+                restart=False, restart_epoch=None,
+                is_base_gaussian=False):
     
     if restart:
         start_epoch, model, optimizer, sched = restart_func(restart_epoch, path, model, optimizer, sched)
@@ -42,20 +45,25 @@ def train_model(model: nn.Module, FM, train_dataloader,
         epoch_loss = 0.
         
         for iteration, info in enumerate(train_dataloader):
-            x0, x1 = info
-
-            t, r, xt, vt = get_batch_avg(FM, x0.to(device), x1.to(device))
-
-            u_pred, du_dt = th.autograd.functional.jvp(model, inputs=(r, t, xt), v=(th.zeros_like(r).to(device), th.ones_like(t).to(device), vt), create_graph=True)
+            if not class_cond:
+                x0, x1 = info
+            else:
+                x0, x1, y = info
+            if is_base_gaussian:
+                x0 = th.randn_like(x0)
+            if return_noise:
+                t, xt, ut, noise = get_batch(FM, x0.to(device), x1.to(device), return_noise=return_noise)
+            else: 
+                t, xt, ut = get_batch(FM, x0.to(device), x1.to(device))
+                   
+            u = rand()
+            if u < 0.5:
+                xt[:, :3] = x1[:, :3].to(device)
+            else:
+                xt[:, 3:] = x1[:, 3:].to(device)
             
-            for _ in range(vt.dim() - 2):
-                r = r.unsqueeze(1)
-                t = t.unsqueeze(1)
-                
-            u = ((r - t) * du_dt + vt).detach()
-            
-            loss = loss_fn(u_pred, u)
-                
+            ut_pred = model(t, xt, y=y.to(device) if class_cond else None)
+            loss = loss_fn(ut_pred[:, 3:], ut[:, 3:]) if u < 0.5 else loss_fn(ut_pred[:, :3], ut[:, :3])
             optimizer.zero_grad()
             loss.backward()       
             optimizer.step()      

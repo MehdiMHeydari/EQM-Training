@@ -1,8 +1,9 @@
 import torch as th
 from torch import nn, optim
 from torch.utils.tensorboard import SummaryWriter
-from functools import partial
-from physics_flow_matching.utils.pre_procs_data import get_batch_avg
+from physics_flow_matching.utils.pre_procs_data import get_batch
+from random import randint
+from einops import rearrange
 
 def restart_func(restart_epoch, path, model, optimizer, sched=None):
     assert restart_epoch != None, "restart epoch not initialized!"
@@ -28,7 +29,10 @@ def train_model(model: nn.Module, FM, train_dataloader,
                 num_epochs, print_epoch_int,
                 save_epoch_int, print_within_epoch_int, path,
                 device,
-                restart=False, restart_epoch=None):
+                return_noise=False,
+                class_cond=False,
+                restart=False, restart_epoch=None,
+                is_base_gaussian=False):
     
     if restart:
         start_epoch, model, optimizer, sched = restart_func(restart_epoch, path, model, optimizer, sched)
@@ -38,24 +42,45 @@ def train_model(model: nn.Module, FM, train_dataloader,
         
     for epoch in range(start_epoch, num_epochs):
         model.train()
+        
+        # y_index = randint(1, len(train_dataloader.dataset.vf_paths) - 2)
+        
+        # train_dataloader.dataset.load_data(y_index)
+        
         iter_val = 0
         epoch_loss = 0.
         
         for iteration, info in enumerate(train_dataloader):
-            x0, x1 = info
-
-            t, r, xt, vt = get_batch_avg(FM, x0.to(device), x1.to(device))
-
-            u_pred, du_dt = th.autograd.functional.jvp(model, inputs=(r, t, xt), v=(th.zeros_like(r).to(device), th.ones_like(t).to(device), vt), create_graph=True)
-            
-            for _ in range(vt.dim() - 2):
-                r = r.unsqueeze(1)
-                t = t.unsqueeze(1)
+            if not class_cond:
+                x0, x1 = info
+            else:
+                x0, x1, y = info
+            if is_base_gaussian:
+                x0 = th.randn_like(x0)
+            if return_noise:
+                t, xt, ut, noise = get_batch(FM, x0.to(device), x1.to(device), return_noise=return_noise)
+            else: 
+                t, xt, ut = get_batch(FM, x0.to(device), x1.to(device))
                 
-            u = ((r - t) * du_dt + vt).detach()
+            xt[:, 0] = x1[:, 0]
+            xt[:, -1] = x1[:, -1]
             
-            loss = loss_fn(u_pred, u)
-                
+            new_xt, new_ut = [], []
+            for index in range(1, x1.shape[1] - 1):
+                new_xt.append(xt[:, index-1: index+2])
+                new_ut.append(ut[:, index:index+1])
+            
+            xt = th.concat(new_xt, dim=0)
+            ut = th.concat(new_ut, dim=0)
+            t = t.repeat((x1.shape[1] - 2, 1))
+            
+            # if y_index == 1:
+            #     xt[:, 0] = x1[:, 0]
+            # elif y_index == len(train_dataloader.dataset.vf_paths) - 2:
+            #     xt[:, -1] = x1[:, -1]
+
+            ut_pred = model(t, xt, y=y.to(device) if class_cond else None)
+            loss = loss_fn(ut_pred, ut)
             optimizer.zero_grad()
             loss.backward()       
             optimizer.step()      
