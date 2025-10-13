@@ -493,7 +493,7 @@ class Patched_Dataset(Dataset):
         return np.empty_like(x1), x1
     
 class Patched_Dataset_W(Dataset):
-    def __init__(self, data, patch_dims, multi_patch=False, zero_pad=True, *args) -> None:
+    def __init__(self, data, patch_dims, multi_patch=False, zero_pad=True, multiple_of_time_steps=1, *args, **kwargs) -> None:
         super().__init__()
         self.zero_pad = zero_pad
         if multi_patch:
@@ -503,6 +503,12 @@ class Patched_Dataset_W(Dataset):
         self.patch_dims = patch_dims
         self.space_ress = data.shape[:2]
         self.time_steps = data.shape[-1]
+        self.mutiple_of_time_steps = multiple_of_time_steps
+        if "re" in kwargs.keys() and kwargs["re"] is not None:
+            self.re = kwargs["re"]
+            self.inner_length_scale = {180:0.18053097561027237, 500:0.4920473773265651, 1000:1}
+        else:
+            self.re = None
         # self.ind_cumprod = np.concatenate((((np.cumprod((self.data.shape[:1] + self.data.shape[2:])[::-1]))[::-1])[1:], np.ones(1))).astype(int)
         if not multi_patch:
             assert len(self.patch_dims) == len(self.space_ress), "The patch dims list does not match the space res list"
@@ -518,6 +524,8 @@ class Patched_Dataset_W(Dataset):
         pad0, pad1 = (k0+1)*patch0 - self.space_ress[0], (k1+1)*patch1 - self.space_ress[1],
         data = np.pad(data, ((pad0,pad0),(pad1,pad1),(0,0)), mode='constant', constant_values=0.) if self.zero_pad else np.pad(data, ((pad0,pad0),(pad1,pad1),(0,0)), mode='wrap')
         x_coord, z_coord = np.linspace(-1, 1, self.space_ress[0]+2*pad0), np.linspace(-1, 1, self.space_ress[1]+2*pad1)
+        if self.re is not None:
+            x_coord, z_coord = self.inner_length_scale[self.re]*x_coord, self.inner_length_scale[self.re]*z_coord
         x_coord, z_coord = x_coord[:, None] * np.ones((self.space_ress[0]+2*pad0, self.space_ress[1]+2*pad1)),\
                            z_coord[None, :] * np.ones((self.space_ress[0]+2*pad0, self.space_ress[1]+2*pad1))
         setattr(self, name, (data).astype(np.float32))
@@ -526,11 +534,11 @@ class Patched_Dataset_W(Dataset):
         setattr(self, "pads", (pad0, pad1) )
         
     def __len__(self):  
-        return self.time_steps #* np.prod(self.space_ress) 
+        return self.mutiple_of_time_steps * self.time_steps #* np.prod(self.space_ress) 
     
     def __getitem__(self, index):
         patch_dims = self.patch_dims if not hasattr(self, "sample_patch_dims") else self.sample_patch_dims
-        time_ind, h_ind, w_ind = index, np.random.randint(0, self.space_ress[0]+ 2*self.pads[0] - patch_dims[0]), np.random.randint(0, self.space_ress[1]+ 2*self.pads[1] - patch_dims[1])        
+        time_ind, h_ind, w_ind = index % self.time_steps, np.random.randint(0, self.space_ress[0]+ 2*self.pads[0] - patch_dims[0]), np.random.randint(0, self.space_ress[1]+ 2*self.pads[1] - patch_dims[1])        
         time_ind %=  self.time_steps
         
         x1 = self.data[..., time_ind]
@@ -547,6 +555,24 @@ class Patched_Dataset_W(Dataset):
         
         x1 = np.stack([x1, x_coord, z_coord], axis=0)
         
+        return np.empty_like(x1), x1
+    
+class Dataset_W(Dataset):
+    def __init__(self, data, patch_dims, *args) -> None:
+        super().__init__()
+        self._preprocess(data,'data')
+        self.time_steps = data.shape[-1]
+
+    def _preprocess(self, data, name):#_preprocess(self, data, cutoff, name):
+        setattr(self, name, (data).astype(np.float32))
+        
+    def __len__(self):  
+        return self.time_steps
+    
+    def __getitem__(self, index):
+        
+        x1 = self.data[..., index]
+        x1 = x1[None]
         return np.empty_like(x1), x1
     
 class Stitched_Dataset_1(Dataset):
@@ -582,11 +608,15 @@ class Stitched_Dataset_1(Dataset):
     
 class Stitched_Dataset_2(Dataset):
     
-    def __init__(self, vf_paths, N):
+    def __init__(self, vf_paths, N, y_delta_list=None):
         super().__init__()
         self.vf_paths = vf_paths
         self.N = N
         self._load_all_data()
+        if y_delta_list is None:
+            self.y_delta_list = None
+        else:
+            self.y_delta_list = np.array(y_delta_list).astype(np.float32)
         
     def _load_all_data(self):
         data = np.concat([np.load(f) for f in self.vf_paths], axis=1)
@@ -599,7 +629,11 @@ class Stitched_Dataset_2(Dataset):
     def __getitem__(self, index):
         
         x1 = self.data[index]
-        return np.empty_like(x1), x1
+        
+        if self.y_delta_list is None:
+            return np.empty_like(x1), x1
+        else:
+            return np.empty_like(x1), x1, self.y_delta_list
         
 DATASETS = {"WP":None,"KS":None, "WPWS":None, "WPWS_DD":None,
             "Joint" : Joint,
@@ -611,7 +645,7 @@ DATASETS = {"WP":None,"KS":None, "WPWS":None, "WPWS_DD":None,
             "VFVF":VFVF, "VFVF_P":VFVF_patchify,
             "VFVF_P2": VFVF_patchify_2,
             "WMAR":WMAR, "WMARR":WMAR_rollout, "Patched":Patched_Dataset,
-            "Patched_W":Patched_Dataset_W, "Stitched": Stitched_Dataset_2}
+            "Patched_W":Patched_Dataset_W, "Baseline_W":Dataset_W, "Stitched": Stitched_Dataset_2}
 
 
 # class WPWS_Sensor(Dataset):

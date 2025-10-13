@@ -757,7 +757,11 @@ def flow_padis_generalized(fm : FlowMatcher, cfm_model : torch.nn.Module,
         
         z_coord = (torch.linspace(-1, 1, W+2*pad_w)[None, None, None, :]).to(device) * torch.ones(B,1,H+2*pad_h,
                                                                                                       W+2*pad_w).to(device)        
-        
+
+        if "inner_scale" in kwargs.keys():
+            in_scale = kwargs['inner_scale']
+            x_coord, z_coord = x_coord*in_scale, z_coord*in_scale
+
         conditioning_per_batch_list = [conditioning[i*samples_per_batch:(i+1)*samples_per_batch] for conditioning in conditioning_list]
         pbar = tqdm(ts[:-1])        
         for t in pbar:
@@ -1046,6 +1050,7 @@ def infer_grad_dpmc(fm : FlowMatcher, cfm_model : torch.nn.Module,
     start = 5e-3 if rf_start else 0 
     ts = torch.linspace(start, 1, num_of_steps, device=device)
     dt = ts[1] - ts[0]
+    refine_ = refine
     
     samples_per_batch = 1
     
@@ -1071,26 +1076,27 @@ def infer_grad_dpmc(fm : FlowMatcher, cfm_model : torch.nn.Module,
              
             x_fixed = x.clone().detach()
             if noise_start_step <= step_idx < noise_end_step:
-                refine = refine
+                refine = refine_
             else:
                 refine = 1
             for _ in range(refine): ##Picard Iteration
                 x = x.requires_grad_()
                 v = cfm_model(t, x)
                 
-                
                 scaled_grad, loss = grad_cost_func(meas_func, x, conditioning_per_batch, 
                                                 is_grad_free=False, grad={"t" : t, "v" : v},
                                                 **kwargs)
                 scaled_grad *= torch.linalg.norm(v.flatten())
                 pbar.set_postfix({'distance': loss}, refresh=False)
-
                 v = v - conditioning_scale*scaled_grad  #beta
+                
                 if noise_start_step <= step_idx < noise_end_step:
-                    scale = (2 * eta[step_idx]).sqrt()
-                    x = x + v*dt + scale*torch.randn(x.shape, device=x.device)#x + (v)*dt 
+                
+                    scale = (2 * conditioning_scale * eta[step_idx]).sqrt()
+                    x = x_fixed + v*dt + scale*torch.randn_like(x)#x + (v)*dt 
+                    
                 else:
-                    x = x + v*dt
+                    x = x_fixed + v*dt
                 x = x.detach()
         
         

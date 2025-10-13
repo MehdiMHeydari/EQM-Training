@@ -320,10 +320,9 @@ def get_joint_loaders(vf_paths, batch_size, dataset_, contrastive=False):
        
     return train_dataloader
 
-def get_stitching_loaders(vf_paths, data_size, batch_size, dataset_):
+def get_stitching_loaders(vf_paths, data_size, batch_size, dataset_, y_delta_list=None):
     
-    train_dataloader = DataLoader(dataset_(vf_paths, data_size), batch_size=batch_size, shuffle=True)
-       
+    train_dataloader = DataLoader(dataset_(vf_paths, data_size, y_delta_list), batch_size=batch_size, shuffle=True)
     return train_dataloader
 
 def get_loaders_vf_fm(vf_paths, batch_size, dataset_, jump=1, all_vel=True, spatial_cutoff=None, z_spatial_cutoff=None, time_cutoff=None, patch_dims=None,
@@ -380,17 +379,17 @@ def get_loaders_vf_fm(vf_paths, batch_size, dataset_, jump=1, all_vel=True, spat
     return train_dataloader
 
 def get_loaders_wp_fm(wall_pres_path, nx, nz, nstep, batch_size, dataset_, patch_dims, multi_patch, zero_pad, spatial_start=0, spatial_cutoff=None,
-                      temporal_cutoff=None, re=None, not_dat_file=False):
+                      temporal_cutoff=None, re=None, not_dat_file=False, multiple_of_time_steps=1, baseline=False):
     
-    inner_scaling = {180 : 0.0006499372706408232/1.5, 500: 0.0004886492934049004, 1000: 0.00041547712259805273}
+    # inner_scaling = {180 : 0.0006499372706408232/1.5, 500: 0.0004886492934049004, 1000: 0.00041547712259805273}
 
     def norm(d, m, s):
-        if re is not None:
-            fluc = (d - m)
-            fluc = fluc/inner_scaling[re]
-            fluc = fluc/fluc.std()
-            return fluc
-        else:
+        # if re is not None:
+        #     fluc = (d - m)
+        #     fluc = fluc/inner_scaling[re]
+        #     fluc = fluc/fluc.std()
+        #     return fluc
+        # else:
             return (d-m)/s
     
     def read_data(file_path, nx, nz, nstep):
@@ -402,7 +401,8 @@ def get_loaders_wp_fm(wall_pres_path, nx, nz, nstep, batch_size, dataset_, patch
     else:
         data = read_data(wall_pres_path, nx, nz, nstep)
     
-    data = data[spatial_start:spatial_cutoff] if spatial_cutoff is not None else data[spatial_start:-1, :-1]
+    if not baseline:
+        data = data[spatial_start:spatial_cutoff] if spatial_cutoff is not None else data[spatial_start:-1, :-1]
 
     m, s = data.mean(), data.std()
     
@@ -410,9 +410,9 @@ def get_loaders_wp_fm(wall_pres_path, nx, nz, nstep, batch_size, dataset_, patch
 
     if multi_patch is not None:
         if temporal_cutoff is not None:
-                train_dataloader = DataLoader(dataset_(data[..., :temporal_cutoff], patch_dims, multi_patch, zero_pad), batch_size=batch_size, shuffle=True)      
+                train_dataloader = DataLoader(dataset_(data[..., :temporal_cutoff], patch_dims, multi_patch, zero_pad, multiple_of_time_steps, re=re), batch_size=batch_size, shuffle=True)      
         else:
-            train_dataloader = DataLoader(dataset_(data, patch_dims, multi_patch, zero_pad), batch_size=batch_size, shuffle=True)
+            train_dataloader = DataLoader(dataset_(data, patch_dims, multi_patch, zero_pad, multiple_of_time_steps, re=re), batch_size=batch_size, shuffle=True)
     else:
         train_dataloader = DataLoader(dataset_(data, patch_dims), batch_size=batch_size, shuffle=True)
        

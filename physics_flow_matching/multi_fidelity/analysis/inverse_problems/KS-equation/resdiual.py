@@ -1,7 +1,7 @@
 import numpy as np
 import scipy
 
-def calculate_kuramoto_sivashinsky_residual(u_solution, dt, dx):
+def calculate_kuramoto_sivashinsky_residual(u_solution, dt, dx, mean_residual=True):
     """
     Calculates the residual of the 1D Kuramoto-Sivashinsky equation:
     PDE: u_t + u * u_x + u_xx + u_xxxx = 0
@@ -78,7 +78,10 @@ def calculate_kuramoto_sivashinsky_residual(u_solution, dt, dx):
     # Calculate the residual: R = u_t + u * u_x + u_xx + u_xxxx
     residual = u_t + u_center * u_x + u_xx + u_xxxx
 
-    return np.abs(residual).reshape(residual.shape[0], -1).mean(axis=-1)
+    if mean_residual:
+        return np.abs(residual).reshape(residual.shape[0], -1).mean(axis=-1)
+    else:
+        return residual
 
 def two_point_corr(data, x, ens,axis):
     """

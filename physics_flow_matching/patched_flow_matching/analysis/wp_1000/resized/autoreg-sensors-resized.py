@@ -13,30 +13,24 @@ from physics_flow_matching.inference_scripts.utils import inpainting2, grad_cost
 from einops import rearrange
 
 # %%
-def read_data(file_path, nx, nz, nstep):
-    data  = np.fromfile(file_path, dtype=np.float64, count=nx*nz*nstep).reshape((nx, nz, nstep), order='F')
-    return data
 
-nx_long, nz_long, nstep_long = 1024, 256, 18750
-Lx_long, Lz_long = 16*np.pi, 4*np.pi / 3
-
-data = read_data("/storage/yi/Channel_M04/channel_re180_16pi_y0001_1000K-1150K_dt=0.032_wallp.dat", nx_long, nz_long, nstep_long)
+data = np.load("/home/meet/FlowMatchingTests/conditional-flow-matching/physics_flow_matching/patched_flow_matching/exps/wp/data_500_resized_infer.npy")
 
 # %%
-m = np.load("/home/meet/FlowMatchingTests/conditional-flow-matching/physics_flow_matching/patched_flow_matching/exps/wp/m_180.npy")
-std = np.load("/home/meet/FlowMatchingTests/conditional-flow-matching/physics_flow_matching/patched_flow_matching/exps/wp/std_180.npy")
-
-# scale = (0.0006499372706408232/1.5)
-# data_ = (data - m)/scale
-# std = data_.std()
-# data_ = data_/std
+m = np.load("/home/meet/FlowMatchingTests/conditional-flow-matching/physics_flow_matching/patched_flow_matching/exps/wp/m_500.npy")
+# std = np.load("/home/meet/FlowMatchingTests/conditional-flow-matching/physics_flow_matching/patched_flow_matching/exps/wp/std_500.npy")
+# data_ = (data - m)/std
+scale = 0.0004886492934049004
+data_ = (data - m)/scale
+std = data_.std()
+data_ = data_/std
 
 # %%
 # m, std = data.mean(axis=(0,2,3), keepdims=True), data.std(axis=(0,2,3), keepdims=True)
 # m = np.load("/home/meet/FlowMatchingTests/conditional-flow-matching/physics_flow_matching/inference_scripts/data/20/m.npy")
 # std = np.load("/home/meet/FlowMatchingTests/conditional-flow-matching/physics_flow_matching/inference_scripts/data/20/std.npy")
 
-data_ = (data - m)/std
+# data_ = (data - m)/std
 
 # %%
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -61,12 +55,12 @@ streamwise_length = 255
 # coord2 = coords // 1023
 mask = np.zeros((1,1,1024, 256))
 # mask[..., coord1, coord2] = 1.
-mask[..., ::13, ::50] = 1. #mask[..., ::10, ::10], mask[..., ::20, ::10] mask[..., ::30, ::10] mask[..., ::15, ::10]
+mask[..., ::10, ::10] = 1. #[..., ::16, ::16] #[..., ::10, ::10] #[..., ::8, ::8]mask = mask[..., :-1, :-1]
 mask = mask[..., :-1, :-1]
 
 # %%
-exp = 1
-iteration = 60
+exp = 8
+iteration = 8 #7 #160 #99 #90 #75 #60 #49 #45 #35 #30 #25
 model = UNetModel(dim=[3, 32, 32],
                         channel_mult=(1,2,2),
                         num_channels=128,
@@ -76,16 +70,16 @@ model = UNetModel(dim=[3, 32, 32],
                         dropout=0.0,
                         use_new_attention_order=True,
                         use_scale_shift_norm=True,
-                        class_cond=True,
+                        class_cond=False,
                         num_classes=None,
                         )
-state = torch.load(f"/home/meet/FlowMatchingTests/conditional-flow-matching/physics_flow_matching/patched_flow_matching/exps/wp/exps_length_inner_scaled/exp_{exp}/saved_state/checkpoint_{iteration}.pth")
+state = torch.load(f"/home/meet/FlowMatchingTests/conditional-flow-matching/physics_flow_matching/patched_flow_matching/exps/wp/exp_{exp}/saved_state/checkpoint_{iteration}.pth")
 model.load_state_dict(state["model_state_dict"])
 model.to(device)
 model.eval();
 
 # %%
-conds = rearrange(data_[:-1, :-1, ::180], "h w b -> b h w")[:, None] * mask
+conds = rearrange(data_[:-1, :-1, ::5], "h w b -> b h w")[:, None] * mask
 
 # %%
 total_samples = 1
@@ -102,9 +96,9 @@ for j, cond in enumerate(conds):
             sample = flow_padis_generalized(fm = FlowMatcher(1e-3), cfm_model=model,
                             total_samples=total_samples, samples_per_batch=samples_per_batch,
                             dims_of_img=(1,streamwise_length,255), num_of_steps=200, grad_cost_func=grad_cost_func_generalized, meas_func_list=[meas_func_1],
-                            conditioning_list=[torch.from_numpy(cond[None][..., :streamwise_length, :]).to(device)], conditioning_scale_list=[1.], device=device, 
+                            conditioning_list=[torch.from_numpy(cond[None][..., :streamwise_length, :]).to(device)], conditioning_scale_list=[1.0], device=device, #[1.0]
                             sample_noise=sample_noise, use_heavy_noise=False,
-                            rf_start=False, nu=None, mask=torch.from_numpy(mask[..., :streamwise_length, :]).to(device), patch_size=(56,56), ignore_index=1, inner_scale=0.18053097561027237)
+                            rf_start=False, nu=None, mask=torch.from_numpy(mask[..., :streamwise_length, :]).to(device), patch_size=(56,56), ignore_index=1 )
             gen_sample.append(sample)
         else:
             prev_sample = gen_sample[-1][..., window_length:, :]
@@ -113,13 +107,13 @@ for j, cond in enumerate(conds):
                             total_samples=total_samples, samples_per_batch=samples_per_batch,
                             dims_of_img=(1,streamwise_length,255), num_of_steps=200, grad_cost_func=grad_cost_func_generalized, meas_func_list=[meas_func_1, meas_func_2],
                             conditioning_list=[torch.from_numpy(cond[None][..., sensor_slice, :]).to(device), torch.from_numpy(prev_sample).to(device)],
-                            conditioning_scale_list=[1.0, 1.0], device=device,
+                            conditioning_scale_list=[1.0, 1.0], device=device, #[1.0, 1.0]
                             sample_noise=sample_noise, use_heavy_noise=False,
                             rf_start=False, nu=None, mask=torch.from_numpy(mask[..., sensor_slice, :]).to(device), slice=slic, start=streamwise_length-window_length
-                            ,patch_size=(56,56), ignore_index=1, inner_scale=0.18053097561027237)
+                            ,patch_size=(56,56), ignore_index=1 )
             gen_sample.append(sample)
     samples.append(np.concat([gen if i==0 else  gen[..., streamwise_length-window_length:, :] for i, gen in enumerate(gen_sample) ], axis=2))
     
 samples = np.concat(samples, axis=0)
 
-np.save(f"/home/meet/FlowMatchingTests/conditional-flow-matching/physics_flow_matching/patched_flow_matching/exps/wp/exps_length_inner_scaled/exp_{exp}/samples_cond_autoreg_{iteration}_s{int(mask.sum())}.npy", (samples*std + m))
+np.save(f"/home/meet/FlowMatchingTests/conditional-flow-matching/physics_flow_matching/patched_flow_matching/exps/wp/exp_{exp}/samples_cond_autoreg_{iteration}_s{int(mask.sum())}_re500_resized.npy", samples*std*scale + m)

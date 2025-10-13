@@ -1,15 +1,12 @@
-import os
 import sys; 
 sys.path.extend(['/home/meet/FlowMatchingTests/conditional-flow-matching/'])
 
 import torch
-import matplotlib.pyplot as plt
 import numpy as np
 from torchcfm.conditional_flow_matching import *
 from physics_flow_matching.unet.unet import UNetModelWrapper as UNetModel
-from physics_flow_matching.inference_scripts.cond import flow_padis_generalized
-from physics_flow_matching.inference_scripts.uncond import infer_patched
-from physics_flow_matching.inference_scripts.utils import inpainting2, grad_cost_func_generalized, sample_noise, inpainting
+from physics_flow_matching.inference_scripts.cond import infer_grad_generalized
+from physics_flow_matching.inference_scripts.utils import grad_cost_func_generalized, sample_noise
 from einops import rearrange
 
 # %%
@@ -27,7 +24,6 @@ m = np.load("/home/meet/FlowMatchingTests/conditional-flow-matching/physics_flow
 std = np.load("/home/meet/FlowMatchingTests/conditional-flow-matching/physics_flow_matching/patched_flow_matching/exps/wp/std_1000.npy")
 data_ = (data - m)/std
 
-
 # %%
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -43,16 +39,16 @@ def meas_func_2(x, **kwargs):
 
 total_samples = 1
 samples_per_batch = 1
-streamwise_length = 1199
+streamwise_length = 1200
 
-mask = np.zeros((1,1,4799, 799))
-mask[..., ::14, ::80] = 1. #mask[..., ::10, ::40] #mask[..., ::20, ::40]
+mask = np.zeros((1,1,4800, 800))
+mask[..., ::10, ::40] = 1.
 
 # %%
-exp = 7
-iteration = 52
-model = UNetModel(dim=[3, 32, 32],
-                        channel_mult=(1,2,2),
+exp = "baseline_1000"
+iteration = 2
+model = UNetModel(dim=[1, 256, 256],
+                        channel_mult=(1, 1, 2, 4),
                         num_channels=128,
                         num_res_blocks=2,
                         num_head_channels=64,
@@ -60,52 +56,49 @@ model = UNetModel(dim=[3, 32, 32],
                         dropout=0.0,
                         use_new_attention_order=True,
                         use_scale_shift_norm=True,
-                        class_cond=True,
+                        class_cond=False,
                         num_classes=None,
                         )
-state = torch.load(f"/home/meet/FlowMatchingTests/conditional-flow-matching/physics_flow_matching/patched_flow_matching/exps/wp/exps_length_inner_scaled/exp_{exp}/saved_state/checkpoint_{iteration}.pth")
+state = torch.load(f"/home/meet/FlowMatchingTests/conditional-flow-matching/physics_flow_matching/patched_flow_matching/exps/wp/ablation_between_patched_and_full/exp_{exp}/saved_state/checkpoint_{iteration}.pth")
 model.load_state_dict(state["model_state_dict"])
 model.to(device)
 model.eval();
 
 # %%
-conds = rearrange(data_[:-1, :-1, ::5], "h w b -> b h w")[:, None] * mask
+conds = rearrange(data_[..., ::5], "h w b -> b h w")[:, None] * mask
 
 # %%
 total_samples = 1
-window_length = 1198
+window_length = 1199
 slic = slice(0, streamwise_length-window_length)
 
 # %%
 samples = []
-
 for j, cond in enumerate(conds):
     print(f"Generating  sample : {j}")
     gen_sample = []
     for i in range(4800//window_length):
         if i == 0:
-            sample = flow_padis_generalized(fm = FlowMatcher(1e-3), cfm_model=model,
+            sample = infer_grad_generalized(fm = FlowMatcher(1e-3), cfm_model=model,
                             total_samples=total_samples, samples_per_batch=samples_per_batch,
-                            dims_of_img=(1,streamwise_length,799), num_of_steps=100, grad_cost_func=grad_cost_func_generalized, meas_func_list=[meas_func_1],
+                            dims_of_img=(1,streamwise_length,800), num_of_steps=100, grad_cost_func=grad_cost_func_generalized, meas_func_list=[meas_func_1],
                             conditioning_list=[torch.from_numpy(cond[None][..., :streamwise_length, :]).to(device)], conditioning_scale_list=[1.], device=device, 
                             sample_noise=sample_noise, use_heavy_noise=False,
-                            rf_start=False, nu=None, mask=torch.from_numpy(mask[None][..., :streamwise_length, :]).to(device), patch_size=(56,56), ignore_index=1)
+                            rf_start=False, nu=None, mask=torch.from_numpy(mask[..., :streamwise_length, :]).to(device), swag=False)
             gen_sample.append(sample)
         else:
             prev_sample = gen_sample[-1][..., window_length:, :]
             sensor_slice = slice(streamwise_length + (i-1)*window_length, streamwise_length + (i)*window_length)
-            sample = flow_padis_generalized(fm = FlowMatcher(1e-3), cfm_model=model,
+            sample = infer_grad_generalized(fm = FlowMatcher(1e-3), cfm_model=model,
                             total_samples=total_samples, samples_per_batch=samples_per_batch,
-                            dims_of_img=(1,streamwise_length,799), num_of_steps=100, grad_cost_func=grad_cost_func_generalized, meas_func_list=[meas_func_1, meas_func_2],
+                            dims_of_img=(1,streamwise_length,800), num_of_steps=100, grad_cost_func=grad_cost_func_generalized, meas_func_list=[meas_func_1, meas_func_2],
                             conditioning_list=[torch.from_numpy(cond[None][..., sensor_slice, :]).to(device), torch.from_numpy(prev_sample).to(device)],
                             conditioning_scale_list=[1.0, 1.0], device=device,
                             sample_noise=sample_noise, use_heavy_noise=False,
-                            rf_start=False, nu=None, mask=torch.from_numpy(mask[None][..., sensor_slice, :]).to(device), slice=slic, start=streamwise_length-window_length
-                            ,patch_size=(56,56), ignore_index=1)
+                            rf_start=False, nu=None, mask=torch.from_numpy(mask[..., sensor_slice, :]).to(device), slice=slic, start=streamwise_length-window_length, swag=False)
             gen_sample.append(sample)
-
     samples.append(np.concat([gen if i==0 else  gen[..., streamwise_length-window_length:, :] for i, gen in enumerate(gen_sample) ], axis=2))
     
 samples = np.concat(samples, axis=0)
 
-np.save(f"/home/meet/FlowMatchingTests/conditional-flow-matching/physics_flow_matching/patched_flow_matching/exps/wp/exps_length_inner_scaled/exp_{exp}/samples_cond_autoreg_{iteration}_s{int(mask.sum())}_Re_1000.npy", samples*std + m)
+np.save(f"/home/meet/FlowMatchingTests/conditional-flow-matching/physics_flow_matching/patched_flow_matching/exps/wp/ablation_between_patched_and_full/exp_{exp}/samples_cond_autoreg_{iteration}_s{int(mask.sum())}.npy", (samples*std + m))
