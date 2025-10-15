@@ -1,31 +1,33 @@
 device: cuda
-exp_num: 3
-path: "/home/meet/FlowMatchingTests/conditional-flow-matching/physics_flow_matching/vf_fm/exps"
+exp_num: 1
+path: "/home/meet/FlowMatchingTests/conditional-flow-matching/physics_flow_matching/vf_fm/exps/EqM-E-test"
 th_seed: 786
 np_seed: 786
 
 unet:
-  dim: [3, 320, 200]
-  channel_mult: "1,  2,  4,  4"
-  num_channels: 128
+  dim: [3, 128, 128]
+  out_channels: 3
+  channel_mult: "1, 1, 2, 3, 4"
+  num_channels: 64
   res_blocks: 2
   head_chans: 64
-  attn_res: "40"
+  attn_res: "32, 16, 8"
   dropout: 0.0
   new_attn: True
   film: True
+  class_cond: False
+  num_classes: null
 
 FM:
-  sigma: 1e-3
-  return_noise: False
+  sched: "trunc_decay"
+  lamda : 4.
+  return_noise : False
 
 dataloader:
-  datapath: ["/home/xiantao/case/wall_pressure/bigchannel/data/to_meet/channel_180_u_y20_all_out.npy",
-            "/home/xiantao/case/wall_pressure/bigchannel/data/to_meet/channel_180_v_y20_all_out.npy",
-            "/home/xiantao/case/wall_pressure/bigchannel/data/to_meet/channel_180_w_y20_all_out.npy"]
+  datapath: [['/home/meet/FlowMatchingTests/conditional-flow-matching/physics_flow_matching/multi_fidelity/synthetic/turb/turb_128_.npy']]
   batch_size: 10
-  jump: 1
-  dataset: VF_FM
+  dataset: Joint
+  contrastive : False
 
 optimizer:
   lr: 1e-4
@@ -34,9 +36,10 @@ scheduler:
   T_max: 100
   eta_min: 1e-6
 
+train_eps: False
 num_epochs: 100
 print_epoch_int: 1
-save_epoch_int: 20
+save_epoch_int: 5
 print_with_epoch_int: 10
-restart: True
-restart_epoch: 9
+restart: False
+restart_epoch:
