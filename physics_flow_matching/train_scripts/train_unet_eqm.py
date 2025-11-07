@@ -14,6 +14,7 @@ from torchcfm.conditional_flow_matching import EquilibriumMatching
 from torch.optim import Adam
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.tensorboard import SummaryWriter
+from torch.utils.data import DataLoader
 
 def create_dir(path, config):
     if not os.path.exists(path):
@@ -38,12 +39,36 @@ def main(config_path):
     dev = th.device(config.device)
     
     writer = SummaryWriter(log_dir=logpath)
-    
-    train_dataloader = get_joint_loaders(vf_paths=config.dataloader.datapath,
-                                        batch_size=config.dataloader.batch_size,
-                                        dataset_=DATASETS[config.dataloader.dataset],
-                                        contrastive=config.dataloader.contrastive)
-        
+
+    # Check if using HDF5 dataset (DarcyFlow) or traditional NPY files
+    dataset_name = config.dataloader.dataset
+    if dataset_name == "DarcyFlow":
+        # For DarcyFlow, instantiate dataset directly with HDF5 file
+        dataset_kwargs = {
+            'hdf5_path': config.dataloader.datapath,
+            'contrastive': config.dataloader.contrastive,
+        }
+        # Add optional parameters if present in config
+        if hasattr(config.dataloader, 'input_key'):
+            dataset_kwargs['input_key'] = config.dataloader.input_key
+        if hasattr(config.dataloader, 'output_key'):
+            dataset_kwargs['output_key'] = config.dataloader.output_key
+        if hasattr(config.dataloader, 'normalize'):
+            dataset_kwargs['normalize'] = config.dataloader.normalize
+        if hasattr(config.dataloader, 'use_eqm_format'):
+            dataset_kwargs['use_eqm_format'] = config.dataloader.use_eqm_format
+
+        dataset = DATASETS[dataset_name](**dataset_kwargs)
+        train_dataloader = DataLoader(dataset,
+                                     batch_size=config.dataloader.batch_size,
+                                     shuffle=True)
+    else:
+        # Use traditional NPY file loader
+        train_dataloader = get_joint_loaders(vf_paths=config.dataloader.datapath,
+                                            batch_size=config.dataloader.batch_size,
+                                            dataset_=DATASETS[dataset_name],
+                                            contrastive=config.dataloader.contrastive)
+
     model = UNetModel(dim=config.unet.dim,
                       out_channels=config.unet.out_channels,
                       channel_mult=config.unet.channel_mult,

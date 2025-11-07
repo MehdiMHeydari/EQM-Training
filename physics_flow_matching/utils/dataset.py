@@ -634,7 +634,104 @@ class Stitched_Dataset_2(Dataset):
             return np.empty_like(x1), x1
         else:
             return np.empty_like(x1), x1, self.y_delta_list
-        
+
+
+class DarcyFlow(Dataset):
+    """
+    Dataset for Darcy Flow HDF5 files.
+
+    Darcy flow describes fluid flow through porous media, governed by:
+        -∇·(ν(x)∇u(x)) = f(x)
+
+    where ν(x) is the spatially-varying permeability/viscosity coefficient,
+    and u(x) is the solution (pressure/flow field).
+
+    HDF5 file structure:
+        - 'nu': Input field (permeability), shape (N, H, W)
+        - 'tensor': Output field (solution), shape (N, 1, H, W) or (N, H, W)
+        - 'x-coordinate': Optional x-coordinates
+        - 'y-coordinate': Optional y-coordinates
+
+    Args:
+        hdf5_path: Path to HDF5 file
+        input_key: Key for input data in HDF5 (default: 'nu')
+        output_key: Key for output data in HDF5 (default: 'tensor')
+        contrastive: Enable contrastive learning mode
+        normalize: Apply standardization (mean=0, std=1)
+        use_eqm_format: If True, return (empty, x1) for EQM training
+                        If False, return (x0, x1) as input-output pair
+    """
+    def __init__(self, hdf5_path, input_key='nu', output_key='tensor',
+                 contrastive=False, normalize=True, use_eqm_format=True):
+        super().__init__()
+        import h5py
+
+        self.contrastive = contrastive
+        self.use_eqm_format = use_eqm_format
+
+        # Load data from HDF5
+        with h5py.File(hdf5_path, 'r') as f:
+            input_data = np.array(f[input_key]).astype(np.float32)
+            output_data = np.array(f[output_key]).astype(np.float32)
+
+        # Ensure input has channel dimension: (N, H, W) -> (N, 1, H, W)
+        if len(input_data.shape) == 3:
+            input_data = input_data[:, np.newaxis, :, :]
+
+        # Ensure output has channel dimension: (N, H, W) -> (N, 1, H, W)
+        if len(output_data.shape) == 3:
+            output_data = output_data[:, np.newaxis, :, :]
+
+        # Store original data
+        self.input_data = input_data
+        self.output_data = output_data
+
+        # Normalize if requested
+        if normalize:
+            # Normalize input per-channel across spatial dimensions
+            input_mean = input_data.mean(axis=(0, 2, 3), keepdims=True)
+            input_std = input_data.std(axis=(0, 2, 3), keepdims=True)
+            self.input_data = (input_data - input_mean) / (input_std + 1e-8)
+
+            # Normalize output per-channel across spatial dimensions
+            output_mean = output_data.mean(axis=(0, 2, 3), keepdims=True)
+            output_std = output_data.std(axis=(0, 2, 3), keepdims=True)
+            self.output_data = (output_data - output_mean) / (output_std + 1e-8)
+
+        self.n = len(self.input_data)
+        self.shape = self.output_data.shape[1:]  # (C, H, W)
+
+    def __len__(self):
+        return self.n
+
+    def __getitem__(self, index):
+        if self.use_eqm_format:
+            # For EQM: x0 is empty (base distribution), x1 is target
+            # We'll use the output (solution) as x1
+            x0 = np.empty(self.shape, dtype=np.float32)
+            x1 = self.output_data[index]
+        else:
+            # For conditional flow matching: x0 is input, x1 is output
+            x0 = self.input_data[index]
+            x1 = self.output_data[index]
+
+        if self.contrastive:
+            random_index = np.random.randint(0, self.n)
+            while index == random_index:
+                random_index = np.random.randint(0, self.n)
+
+            if self.use_eqm_format:
+                x0_cont = np.empty(self.shape, dtype=np.float32)
+                x1_cont = self.output_data[random_index]
+            else:
+                x0_cont = self.input_data[random_index]
+                x1_cont = self.output_data[random_index]
+
+            return x0, x1, x0_cont, x1_cont
+
+        return x0, x1
+
+
 DATASETS = {"WP":None,"KS":None, "WPWS":None, "WPWS_DD":None,
             "Joint" : Joint,
             "VF_FM":VF_FM,
@@ -645,7 +742,8 @@ DATASETS = {"WP":None,"KS":None, "WPWS":None, "WPWS_DD":None,
             "VFVF":VFVF, "VFVF_P":VFVF_patchify,
             "VFVF_P2": VFVF_patchify_2,
             "WMAR":WMAR, "WMARR":WMAR_rollout, "Patched":Patched_Dataset,
-            "Patched_W":Patched_Dataset_W, "Baseline_W":Dataset_W, "Stitched": Stitched_Dataset_2}
+            "Patched_W":Patched_Dataset_W, "Baseline_W":Dataset_W, "Stitched": Stitched_Dataset_2,
+            "DarcyFlow": DarcyFlow}
 
 
 # class WPWS_Sensor(Dataset):
