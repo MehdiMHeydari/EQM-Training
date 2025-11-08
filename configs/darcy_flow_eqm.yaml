@@ -28,11 +28,11 @@ dataloader:
   batch_size: 32
   dataset: DarcyFlow
   contrastive: False
-  # Optional parameters for DarcyFlow dataset:
-  input_key: "nu"        # Input field (permeability coefficient)
-  output_key: "tensor"   # Output field (solution)
+  # Conditional flow matching: learn a(x,y) -> u(x,y) mapping
+  input_key: "nu"        # x0: Input field a(x,y) (permeability coefficient)
+  output_key: "tensor"   # x1: Output field u(x,y) (solution)
   normalize: True        # Apply standardization
-  use_eqm_format: True   # Use EQM format (empty x0, data as x1)
+  use_eqm_format: False  # Use paired format: x0=a(x,y), x1=u(x,y)
 
 optimizer:
   lr: 1e-4
