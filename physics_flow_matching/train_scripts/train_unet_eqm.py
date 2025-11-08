@@ -21,8 +21,10 @@ def create_dir(path, config):
         os.makedirs(path)
         print(f"Directory '{path}' created.")
     else:
-        assert config.restart != False, "Are you restarting?"
-        print(f"Directory '{path}' already exists.")
+        if hasattr(config, 'restart') and config.restart:
+            print(f"Directory '{path}' already exists. Restarting training...")
+        else:
+            print(f"Directory '{path}' already exists. Continuing...")
 
 def main(config_path):
 

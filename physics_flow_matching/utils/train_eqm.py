@@ -57,7 +57,10 @@ def train_model(model: nn.Module, FM, train_dataloader,
 
             ## explicit energy formulation
             xt.requires_grad_(True)
-            pred = model(xt, y=y.to(device) if class_cond else None)
+            if class_cond:
+                pred = model(xt, y=y.to(device))
+            else:
+                pred = model(xt)
             E = th.sum(xt * pred, dim=(1,2,3))
             ut_pred = th.autograd.grad([E.sum()], [xt], create_graph=True)[0]
             
