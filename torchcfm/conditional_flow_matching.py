@@ -936,7 +936,7 @@ class VariancePreservingConditionalFlowMatcher(ConditionalFlowMatcher):
         return math.pi / 2 * (torch.cos(math.pi / 2 * t) * x1 - torch.sin(math.pi / 2 * t) * x0)
 
 class CFM_modified(ConditionalFlowMatcher):
-    def __init__(self, sigma: float | int = 0, sigma_min: float = 1e-2, scale: float| int=1):
+    def __init__(self, sigma: Union[float, int] = 0, sigma_min: float = 1e-2, scale: Union[float, int]=1):
         super().__init__(sigma)
         self.sigma_min = sigma_min
         self.scale = scale
@@ -1000,10 +1000,9 @@ class EquilibriumMatching :
             AssertionError("the schedule is not implemented")       
                         
     def compute_mu_t(self, x0, x1, t):
-        
-        del x0
+        """Compute interpolation between x0 and x1 for conditional generation."""
         t = pad_t_like_x(t, x1)
-        return t * x1
+        return (1 - t) * x0 + t * x1
 
     def compute_sigma_t(self, t):
        
@@ -1019,21 +1018,22 @@ class EquilibriumMatching :
         sigma_t = pad_t_like_x(sigma_t, x1)
         return mu_t + sigma_t * epsilon
 
-    def compute_conditional_flow(self, eps, x1, t):
-        
-        grad = eps - x1
-        return grad  * pad_t_like_x(self.lamda * self.c(t), x1)
+    def compute_conditional_flow(self, x0, x1, eps, t):
+        """Compute conditional flow for x0 -> x1 transformation."""
+        # Target flow is from x0 to x1
+        grad = eps - (x1 - x0)
+        return grad * pad_t_like_x(self.lamda * self.c(t), x1)
 
     def sample_location_and_conditional_flow(self, x0, x1, t=None, return_noise=False):
-       
+
         if t is None:
             t = torch.rand(x0.shape[0]).type_as(x0)
         assert len(t) == x0.shape[0], "t has to have batch size dimension"
 
         eps = self.sample_noise_like(x0)
         xt = self.sample_xt(x0, x1, t, eps)
-        ut = self.compute_conditional_flow(eps, x1, t)
-        
+        ut = self.compute_conditional_flow(x0, x1, eps, t)
+
         if return_noise:
             return t, xt, ut, eps
         else:
