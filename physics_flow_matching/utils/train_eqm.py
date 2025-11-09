@@ -30,7 +30,8 @@ def train_model(model: nn.Module, FM, train_dataloader,
                 return_noise=False,
                 class_cond=False,
                 restart=False, restart_epoch=None,
-                is_base_gaussian=False):
+                is_base_gaussian=False,
+                drive_backup_path=None):
     
     if restart:
         start_epoch, model, optimizer, sched = restart_func(restart_epoch, path, model, optimizer, sched)
@@ -86,19 +87,36 @@ def train_model(model: nn.Module, FM, train_dataloader,
             
         if (epoch % save_epoch_int) == 0 or (epoch == (num_epochs - 1)):
             print(f"Saving model details at epoch: {epoch}")
+            checkpoint_path = f'{path}/checkpoint_{epoch}.pth'
             if sched is not None:
                 th.save({
                             'epoch': epoch,
                             'model_state_dict': model.state_dict(),
                             'optimizer_state_dict': optimizer.state_dict(),
                             'scheduler_state_dict': sched.state_dict()
-                            }, f'{path}/checkpoint_{epoch}.pth')
+                            }, checkpoint_path)
             else:
                 th.save({
                             'epoch': epoch,
                             'model_state_dict': model.state_dict(),
                             'optimizer_state_dict': optimizer.state_dict(),
-                            }, f'{path}/checkpoint_{epoch}.pth')
+                            }, checkpoint_path)
+
+            # Auto-backup to Google Drive if path provided
+            if drive_backup_path is not None:
+                try:
+                    import shutil
+                    import os
+
+                    # Create Drive backup directory if it doesn't exist
+                    os.makedirs(drive_backup_path, exist_ok=True)
+
+                    # Copy checkpoint to Drive
+                    drive_checkpoint_path = os.path.join(drive_backup_path, f'checkpoint_{epoch}.pth')
+                    shutil.copy(checkpoint_path, drive_checkpoint_path)
+                    print(f"✅ Checkpoint backed up to: {drive_checkpoint_path}")
+                except Exception as e:
+                    print(f"⚠️  Warning: Could not backup to Drive: {e}")
         
     writer.close()
     print("Training Complete!")

@@ -95,6 +95,9 @@ def main(config_path):
     
     loss_fn = DD_loss
     
+    # Check for Google Drive backup path in config
+    drive_backup = config.drive_backup_path if hasattr(config, 'drive_backup_path') else None
+
     train_model(model=model,
                 FM=FM,
                 train_dataloader=train_dataloader,
@@ -111,7 +114,8 @@ def main(config_path):
                 restart=config.restart,
                 return_noise=config.FM.return_noise,
                 restart_epoch=config.restart_epoch,
-                class_cond=config.unet.class_cond if hasattr(config.unet, 'class_cond') else False)
+                class_cond=config.unet.class_cond if hasattr(config.unet, 'class_cond') else False,
+                drive_backup_path=drive_backup)
 
 if __name__ == '__main__':
     main(sys.argv[1])
