@@ -57,20 +57,23 @@ def sample_conditional_eqm(model, input_fields, device, t_span=None, batch_size=
         # Start from input permeability fields at t=0
         x0 = torch.from_numpy(input_fields[start_idx:end_idx]).float().to(device)
 
-        # Define ODE function: dx/dt = ∇E(x)
+        # Define ODE function: dx/dt = -∇E(x)
+        # Note: EQM trains with negative velocities, so we need to negate the gradient
+        # to flow in the correct direction from a(x,y) → u(x,y)
         def ode_func(t, x):
             x.requires_grad_(True)
             with torch.enable_grad():
-                # Compute energy E(x)
+                # Compute energy E(x) = sum(x * model(x))
                 pred = model(x)
                 E = torch.sum(x * pred, dim=(1, 2, 3))
 
-                # Compute velocity v = ∇E(x)
-                v = torch.autograd.grad([E.sum()], [x], create_graph=False)[0]
+                # Compute velocity v = -∇E(x)  [NEGATIVE to reverse the gradient direction]
+                # This is because EQM trains with ut = -λ*c(t)*dxt/dt
+                v = -torch.autograd.grad([E.sum()], [x], create_graph=False)[0]
 
             return v
 
-        # Solve ODE from t=0 (input) to t=1 (output)
+        # Solve ODE from t=0 (input a) to t=1 (output u)
         with torch.no_grad():
             trajectory = odeint(
                 ode_func,
