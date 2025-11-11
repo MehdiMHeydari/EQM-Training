@@ -1000,9 +1000,10 @@ class EquilibriumMatching :
             AssertionError("the schedule is not implemented")       
                         
     def compute_mu_t(self, x0, x1, t):
-        """Compute interpolation between x0 and x1 for conditional generation."""
+        """Compute mean for unconditional generation (noise → data)."""
+        del x0  # Unconditional - only use output
         t = pad_t_like_x(t, x1)
-        return (1 - t) * x0 + t * x1
+        return t * x1
 
     def compute_sigma_t(self, t):
        
