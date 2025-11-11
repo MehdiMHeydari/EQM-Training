@@ -706,9 +706,9 @@ class DarcyFlow(Dataset):
 
     def __getitem__(self, index):
         if self.use_eqm_format:
-            # For EQM: x0 is empty (base distribution), x1 is target
+            # For EQM: x0 is zeros (base distribution), x1 is target
             # We'll use the output (solution) as x1
-            x0 = np.empty(self.shape, dtype=np.float32)
+            x0 = np.zeros(self.shape, dtype=np.float32)
             x1 = self.output_data[index]
         else:
             # For conditional flow matching: x0 is input, x1 is output
@@ -721,7 +721,7 @@ class DarcyFlow(Dataset):
                 random_index = np.random.randint(0, self.n)
 
             if self.use_eqm_format:
-                x0_cont = np.empty(self.shape, dtype=np.float32)
+                x0_cont = np.zeros(self.shape, dtype=np.float32)
                 x1_cont = self.output_data[random_index]
             else:
                 x0_cont = self.input_data[random_index]
