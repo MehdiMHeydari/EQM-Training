@@ -90,8 +90,9 @@ def main(config_path):
     FM = EquilibriumMatching(sched=config.FM.sched, lamda=config.FM.lamda, a=0.8)
     
     optim = Adam(model.parameters(), lr=config.optimizer.lr)
-    
-    sched = None#CosineAnnealingLR(optim, config.scheduler.T_max, config.scheduler.eta_min)
+
+    # Enable cosine annealing scheduler for better convergence
+    sched = CosineAnnealingLR(optim, config.scheduler.T_max, config.scheduler.eta_min)
     
     loss_fn = DD_loss
     
