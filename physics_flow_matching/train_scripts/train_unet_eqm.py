@@ -12,7 +12,6 @@ from physics_flow_matching.utils.train_eqm import train_model
 from physics_flow_matching.utils.obj_funcs import DD_loss
 from torchcfm.conditional_flow_matching import EquilibriumMatching
 from torch.optim import Adam
-from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 
@@ -94,8 +93,8 @@ def main(config_path):
     
     optim = Adam(model.parameters(), lr=config.optimizer.lr)
 
-    # Enable cosine annealing scheduler for better convergence
-    sched = CosineAnnealingLR(optim, config.scheduler.T_max, config.scheduler.eta_min)
+    # Scheduler disabled - using constant learning rate
+    sched = None
     
     loss_fn = DD_loss
     
