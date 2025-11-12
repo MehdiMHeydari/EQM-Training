@@ -22,7 +22,8 @@ from physics_flow_matching.unet.unet_bb import UNetModelWrapper as UNetModel
 
 
 def sample_unconditional_gradient_descent(model, num_samples, shape, device,
-                                          num_steps=100, step_size=0.01, batch_size=16):
+                                          num_steps=100, step_size=0.01, batch_size=16,
+                                          clip_range=(-1, 1)):
     """
     Sample from unconditional EQM model: noise → u(x,y).
 
@@ -34,6 +35,7 @@ def sample_unconditional_gradient_descent(model, num_samples, shape, device,
         num_steps: Number of gradient descent steps
         step_size: Step size for gradient descent
         batch_size: Batch size for sampling
+        clip_range: Tuple (min, max) to clip samples during generation
 
     Returns:
         samples: Generated solution fields u(x,y) as numpy array
@@ -65,6 +67,9 @@ def sample_unconditional_gradient_descent(model, num_samples, shape, device,
             # Update x (gradient descent step)
             with torch.no_grad():
                 x = x + step_size * grad
+                # Clip to valid range to prevent drift out of distribution
+                if clip_range is not None:
+                    x = torch.clamp(x, clip_range[0], clip_range[1])
 
         # Save final samples
         all_samples.append(x.detach().cpu().numpy())
@@ -122,6 +127,18 @@ def main():
     model.to(device)
     model.eval()
 
+    # Load normalization stats from checkpoint
+    if 'normalization_stats' in checkpoint:
+        norm_stats = checkpoint['normalization_stats']
+        data_min = norm_stats['data_min']
+        data_max = norm_stats['data_max']
+        print(f"Loaded normalization stats: min={data_min:.4f}, max={data_max:.4f}")
+        print(f"Samples will be clipped to [-1, 1] during generation")
+        clip_range = (-1, 1)
+    else:
+        print("Warning: No normalization stats found in checkpoint. Samples may drift out of distribution.")
+        clip_range = None
+
     # Sample shape from config
     sample_shape = tuple(config.unet.dim)  # (C, H, W)
     print(f"Sample shape: {sample_shape}")
@@ -135,7 +152,8 @@ def main():
         device=device,
         num_steps=args.num_steps,
         step_size=args.step_size,
-        batch_size=args.batch_size
+        batch_size=args.batch_size,
+        clip_range=clip_range
     )
 
     # Save samples

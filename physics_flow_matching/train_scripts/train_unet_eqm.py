@@ -64,12 +64,15 @@ def main(config_path):
         train_dataloader = DataLoader(dataset,
                                      batch_size=config.dataloader.batch_size,
                                      shuffle=True)
+        # Get normalization stats from dataset
+        normalization_stats = dataset.get_normalization_stats()
     else:
         # Use traditional NPY file loader
         train_dataloader = get_joint_loaders(vf_paths=config.dataloader.datapath,
                                             batch_size=config.dataloader.batch_size,
                                             dataset_=DATASETS[dataset_name],
                                             contrastive=config.dataloader.contrastive)
+        normalization_stats = None  # Not available for NPY datasets
 
     model = UNetModel(dim=config.unet.dim,
                       out_channels=config.unet.out_channels,
@@ -116,7 +119,8 @@ def main(config_path):
                 return_noise=config.FM.return_noise,
                 restart_epoch=config.restart_epoch,
                 class_cond=config.unet.class_cond if hasattr(config.unet, 'class_cond') else False,
-                drive_backup_path=drive_backup)
+                drive_backup_path=drive_backup,
+                normalization_stats=normalization_stats)
 
 if __name__ == '__main__':
     main(sys.argv[1])

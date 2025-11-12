@@ -31,7 +31,8 @@ def train_model(model: nn.Module, FM, train_dataloader,
                 class_cond=False,
                 restart=False, restart_epoch=None,
                 is_base_gaussian=False,
-                drive_backup_path=None):
+                drive_backup_path=None,
+                normalization_stats=None):
     
     if restart:
         start_epoch, model, optimizer, sched = restart_func(restart_epoch, path, model, optimizer, sched)
@@ -88,19 +89,25 @@ def train_model(model: nn.Module, FM, train_dataloader,
         if (epoch % save_epoch_int) == 0 or (epoch == (num_epochs - 1)):
             print(f"Saving model details at epoch: {epoch}")
             checkpoint_path = f'{path}/checkpoint_{epoch}.pth'
+
+            # Build checkpoint dictionary
+            checkpoint_dict = {
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+            }
+
+            # Add scheduler if present
             if sched is not None:
-                th.save({
-                            'epoch': epoch,
-                            'model_state_dict': model.state_dict(),
-                            'optimizer_state_dict': optimizer.state_dict(),
-                            'scheduler_state_dict': sched.state_dict()
-                            }, checkpoint_path)
-            else:
-                th.save({
-                            'epoch': epoch,
-                            'model_state_dict': model.state_dict(),
-                            'optimizer_state_dict': optimizer.state_dict(),
-                            }, checkpoint_path)
+                checkpoint_dict['scheduler_state_dict'] = sched.state_dict()
+
+            # Add normalization stats if present
+            if normalization_stats is not None:
+                checkpoint_dict['normalization_stats'] = normalization_stats
+                print(f"Saved normalization stats: min={normalization_stats['data_min']:.4f}, max={normalization_stats['data_max']:.4f}")
+
+            # Save checkpoint
+            th.save(checkpoint_dict, checkpoint_path)
 
             # Auto-backup to Google Drive if path provided
             if drive_backup_path is not None:

@@ -31,7 +31,7 @@ dataloader:
   # Unconditional generation: learn noise -> u(x,y) (ignores a(x,y))
   input_key: "nu"        # Not used - for compatibility only
   output_key: "tensor"   # x1: Solution field u(x,y) to generate
-  normalize: True        # Apply standardization
+  normalize: True        # Apply min-max normalization to [-1, 1] range
   use_eqm_format: True   # Unconditional format: x0=empty, x1=u(x,y)
 
 optimizer:

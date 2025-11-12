@@ -657,7 +657,7 @@ class DarcyFlow(Dataset):
         input_key: Key for input data in HDF5 (default: 'nu')
         output_key: Key for output data in HDF5 (default: 'tensor')
         contrastive: Enable contrastive learning mode
-        normalize: Apply standardization (mean=0, std=1)
+        normalize: Apply min-max normalization to [-1, 1] range
         use_eqm_format: If True, return (empty, x1) for EQM training
                         If False, return (x0, x1) as input-output pair
     """
@@ -688,21 +688,49 @@ class DarcyFlow(Dataset):
 
         # Normalize if requested
         if normalize:
-            # Normalize input per-channel across spatial dimensions
-            input_mean = input_data.mean(axis=(0, 2, 3), keepdims=True)
-            input_std = input_data.std(axis=(0, 2, 3), keepdims=True)
-            self.input_data = (input_data - input_mean) / (input_std + 1e-8)
+            # Min-max normalization to [-1, 1] range for output
+            output_min = output_data.min()
+            output_max = output_data.max()
+            self.output_data = 2 * (output_data - output_min) / (output_max - output_min + 1e-8) - 1
 
-            # Normalize output per-channel across spatial dimensions
-            output_mean = output_data.mean(axis=(0, 2, 3), keepdims=True)
-            output_std = output_data.std(axis=(0, 2, 3), keepdims=True)
-            self.output_data = (output_data - output_mean) / (output_std + 1e-8)
+            # Store normalization constants for later use during sampling
+            self.data_min = float(output_min)
+            self.data_max = float(output_max)
+
+            # Same for input (though not used in unconditional mode)
+            input_min = input_data.min()
+            input_max = input_data.max()
+            self.input_data = 2 * (input_data - input_min) / (input_max - input_min + 1e-8) - 1
+
+            # Store input normalization constants as well
+            self.input_min = float(input_min)
+            self.input_max = float(input_max)
+        else:
+            # If not normalizing, set default values
+            self.data_min = None
+            self.data_max = None
+            self.input_min = None
+            self.input_max = None
 
         self.n = len(self.input_data)
         self.shape = self.output_data.shape[1:]  # (C, H, W)
 
     def __len__(self):
         return self.n
+
+    def get_normalization_stats(self):
+        """
+        Return normalization statistics for saving in checkpoint.
+
+        Returns:
+            dict: Dictionary containing data_min, data_max, input_min, input_max
+        """
+        return {
+            'data_min': self.data_min,
+            'data_max': self.data_max,
+            'input_min': self.input_min,
+            'input_max': self.input_max
+        }
 
     def __getitem__(self, index):
         if self.use_eqm_format:
