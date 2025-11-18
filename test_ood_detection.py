@@ -209,71 +209,135 @@ def main():
     # Create comprehensive visualization
     print("\nCreating visualization...")
 
-    num_noise_levels = len(args.noise_levels) + 1  # +1 for clean
-    fig = plt.figure(figsize=(20, 12))
-    gs = fig.add_gridspec(3, num_noise_levels, hspace=0.3, wspace=0.3)
-
-    # Top row: Sample visualizations
-    for idx, (label, samples) in enumerate(all_samples.items()):
-        ax = fig.add_subplot(gs[0, idx])
-        ax.imshow(samples[0, 0], cmap='viridis')
-        ax.set_title(label, fontsize=12, fontweight='bold')
-        ax.axis('off')
-
-    # Middle row: Energy histograms
     colors = ['#2ecc71', '#f39c12', '#e74c3c', '#9b59b6', '#3498db']
-    for idx, (label, energies) in enumerate(all_energies.items()):
-        ax = fig.add_subplot(gs[1, idx])
-        ax.hist(energies, bins=30, alpha=0.7, color=colors[idx % len(colors)],
-                edgecolor='black', linewidth=0.5)
-        ax.axvline(energies.mean(), color='darkred', linestyle='--', linewidth=2,
-                   label=f'Mean: {energies.mean():.1f}')
-        ax.set_xlabel('Energy', fontsize=10)
-        ax.set_ylabel('Count', fontsize=10)
-        ax.set_title(f'{label}\nMean={energies.mean():.1f}, Std={energies.std():.1f}',
-                    fontsize=10)
-        ax.legend(fontsize=8)
-        ax.grid(True, alpha=0.3)
 
-    # Bottom row: Overlapping histogram comparison
-    ax_combined = fig.add_subplot(gs[2, :])
+    fig = plt.figure(figsize=(20, 14))
+    gs = fig.add_gridspec(3, 2, hspace=0.35, wspace=0.3, height_ratios=[1, 1.5, 1])
 
-    # Find global energy range for consistent binning
+    # Top row: Sample images showing progression of noise
+    ax_samples = plt.subplot(gs[0, :])
+    ax_samples.axis('off')
+
+    num_samples_to_show = len(all_samples)
+    sample_width = 1.0 / num_samples_to_show
+
+    for idx, (label, samples) in enumerate(all_samples.items()):
+        ax_img = fig.add_axes([idx * sample_width + 0.05, 0.68, sample_width * 0.85, 0.22])
+        im = ax_img.imshow(samples[0, 0], cmap='viridis')
+        ax_img.set_title(label, fontsize=13, fontweight='bold', pad=10)
+        ax_img.axis('off')
+        plt.colorbar(im, ax=ax_img, fraction=0.046, pad=0.04)
+
+    # Middle: Mean energy trend line
+    ax_trend = plt.subplot(gs[1, 0])
+
+    noise_levels = [0.0] + args.noise_levels
+    mean_energies = [all_energies[list(all_energies.keys())[i]].mean()
+                     for i in range(len(all_energies))]
+    std_energies = [all_energies[list(all_energies.keys())[i]].std()
+                    for i in range(len(all_energies))]
+
+    ax_trend.plot(noise_levels, mean_energies, 'o-', linewidth=3, markersize=12,
+                 color='#e74c3c', label='Mean Energy')
+    ax_trend.fill_between(noise_levels,
+                          np.array(mean_energies) - np.array(std_energies),
+                          np.array(mean_energies) + np.array(std_energies),
+                          alpha=0.3, color='#e74c3c', label='±1 Std')
+
+    ax_trend.axhline(clean_energies.mean(), color='#2ecc71', linestyle='--',
+                    linewidth=2, label='Clean Mean', alpha=0.7)
+    ax_trend.set_xlabel('Noise Level (σ)', fontsize=13, fontweight='bold')
+    ax_trend.set_ylabel('Mean Energy', fontsize=13, fontweight='bold')
+    ax_trend.set_title('Energy vs Noise Level\n(Clear separation = Good OOD detection)',
+                      fontsize=14, fontweight='bold', pad=15)
+    ax_trend.legend(fontsize=11, loc='best')
+    ax_trend.grid(True, alpha=0.4, linewidth=1.2)
+
+    # Add arrows and annotations
+    ax_trend.annotate('', xy=(noise_levels[-1], mean_energies[-1]),
+                     xytext=(noise_levels[0], mean_energies[0]),
+                     arrowprops=dict(arrowstyle='->', lw=2.5, color='black', alpha=0.5))
+    ax_trend.text(0.5, 0.15, 'Increasing Noise →\nIncreasing Energy →',
+                 transform=ax_trend.transAxes, fontsize=11,
+                 bbox=dict(boxstyle='round', facecolor='yellow', alpha=0.3),
+                 ha='center')
+
+    # Middle right: Stacked/separated histograms for clarity
+    ax_hist = plt.subplot(gs[1, 1])
+
+    from scipy import stats
+
+    # Use KDE for smoother visualization
     all_energy_values = np.concatenate([energies for energies in all_energies.values()])
-    bins = np.linspace(all_energy_values.min(), all_energy_values.max(), 60)
+    energy_range = np.linspace(all_energy_values.min(), all_energy_values.max(), 300)
 
-    # Plot overlapping histograms
     for idx, (label, energies) in enumerate(all_energies.items()):
-        ax_combined.hist(energies, bins=bins, alpha=0.5,
-                        color=colors[idx % len(colors)],
-                        label=f'{label} (μ={energies.mean():.0f})',
-                        edgecolor='black', linewidth=0.8, density=True)
+        # Kernel density estimation for smooth curve
+        kde = stats.gaussian_kde(energies)
+        density = kde(energy_range)
 
-        # Add vertical line for mean
-        ax_combined.axvline(energies.mean(), color=colors[idx % len(colors)],
-                           linestyle='--', linewidth=2.5, alpha=0.8)
+        # Offset each distribution vertically for clarity
+        offset = idx * 0.00003
+        ax_hist.fill_between(energy_range, offset, density + offset,
+                            alpha=0.7, color=colors[idx % len(colors)],
+                            label=f'{label} (μ={energies.mean():.0f})')
+        ax_hist.plot(energy_range, density + offset, color=colors[idx % len(colors)],
+                    linewidth=2.5)
 
-    ax_combined.set_ylabel('Density', fontsize=14, fontweight='bold')
-    ax_combined.set_xlabel('Energy E(x) = sum(x * model(x))', fontsize=14, fontweight='bold')
-    ax_combined.set_title('Energy Distributions: Clean vs Noisy Samples\n(Higher noise → Higher energy → Better OOD detection)',
-                         fontsize=15, fontweight='bold', pad=20)
-    ax_combined.legend(fontsize=11, loc='upper right', framealpha=0.9)
-    ax_combined.grid(True, alpha=0.3, linewidth=1.2)
+        # Mark mean
+        ax_hist.axvline(energies.mean(), ymin=offset/0.00015, ymax=(offset + 0.00003)/0.00015,
+                       color=colors[idx % len(colors)], linestyle='--', linewidth=2, alpha=0.8)
 
-    # Add text annotation
-    ax_combined.text(0.02, 0.98,
-                    '← Lower Energy\n(In-Distribution)',
-                    transform=ax_combined.transAxes,
-                    fontsize=10, verticalalignment='top',
-                    bbox=dict(boxstyle='round', facecolor='lightgreen', alpha=0.5))
-    ax_combined.text(0.98, 0.98,
-                    'Higher Energy →\n(Out-of-Distribution)',
-                    transform=ax_combined.transAxes,
-                    fontsize=10, verticalalignment='top', horizontalalignment='right',
-                    bbox=dict(boxstyle='round', facecolor='lightcoral', alpha=0.5))
+    ax_hist.set_xlabel('Energy E(x) = sum(x * model(x))', fontsize=13, fontweight='bold')
+    ax_hist.set_ylabel('Density (offset for clarity)', fontsize=13, fontweight='bold')
+    ax_hist.set_title('Energy Distributions (Separated for Clarity)\n(Left = In-Distribution, Right = Out-of-Distribution)',
+                     fontsize=14, fontweight='bold', pad=15)
+    ax_hist.legend(fontsize=10, loc='upper right', framealpha=0.95)
+    ax_hist.grid(True, alpha=0.3, linewidth=1)
 
-    plt.suptitle('Out-of-Distribution Detection using Energy Function',
-                fontsize=16, fontweight='bold', y=0.995)
+    # Bottom: Energy statistics table
+    ax_table = plt.subplot(gs[2, :])
+    ax_table.axis('off')
+
+    table_data = []
+    headers = ['Noise Level', 'Mean Energy', 'Std Energy', 'Energy Increase', '% Increase']
+
+    for idx, (label, energies) in enumerate(all_energies.items()):
+        noise_val = label.split('=')[1].rstrip(')')
+        mean_e = energies.mean()
+        std_e = energies.std()
+        diff = mean_e - clean_energies.mean()
+        pct = (diff / abs(clean_energies.mean())) * 100
+
+        table_data.append([
+            noise_val,
+            f'{mean_e:.1f}',
+            f'{std_e:.1f}',
+            f'{diff:+.1f}',
+            f'{pct:+.1f}%'
+        ])
+
+    table = ax_table.table(cellText=table_data, colLabels=headers,
+                           cellLoc='center', loc='center',
+                           colWidths=[0.15, 0.2, 0.2, 0.25, 0.2])
+    table.auto_set_font_size(False)
+    table.set_fontsize(11)
+    table.scale(1, 2.5)
+
+    # Color code the rows
+    for i in range(len(table_data)):
+        for j in range(len(headers)):
+            cell = table[(i+1, j)]
+            cell.set_facecolor(colors[i % len(colors)])
+            cell.set_alpha(0.3)
+
+    # Header styling
+    for j in range(len(headers)):
+        table[(0, j)].set_facecolor('#34495e')
+        table[(0, j)].set_text_props(weight='bold', color='white')
+
+    plt.suptitle('Out-of-Distribution Detection using Energy Function\n✓ Higher Noise → Higher Energy → Successful OOD Detection',
+                fontsize=16, fontweight='bold', y=0.98)
 
     plt.savefig(args.output, dpi=150, bbox_inches='tight')
     print(f"Plot saved to {args.output}")
