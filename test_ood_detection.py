@@ -235,28 +235,42 @@ def main():
         ax.legend(fontsize=8)
         ax.grid(True, alpha=0.3)
 
-    # Bottom row: Combined comparison
+    # Bottom row: Overlapping histogram comparison
     ax_combined = fig.add_subplot(gs[2, :])
 
-    # Box plot
-    box_data = [all_energies[label] for label in all_energies.keys()]
-    bp = ax_combined.boxplot(box_data, labels=list(all_energies.keys()),
-                             patch_artist=True, widths=0.6,
-                             medianprops=dict(color='red', linewidth=2.5),
-                             whiskerprops=dict(linewidth=1.5),
-                             capprops=dict(linewidth=1.5))
+    # Find global energy range for consistent binning
+    all_energy_values = np.concatenate([energies for energies in all_energies.values()])
+    bins = np.linspace(all_energy_values.min(), all_energy_values.max(), 60)
 
-    # Color boxes
-    for patch, color in zip(bp['boxes'], colors):
-        patch.set_facecolor(color)
-        patch.set_alpha(0.7)
+    # Plot overlapping histograms
+    for idx, (label, energies) in enumerate(all_energies.items()):
+        ax_combined.hist(energies, bins=bins, alpha=0.5,
+                        color=colors[idx % len(colors)],
+                        label=f'{label} (μ={energies.mean():.0f})',
+                        edgecolor='black', linewidth=0.8, density=True)
 
-    ax_combined.set_ylabel('Energy E(x)', fontsize=12)
-    ax_combined.set_xlabel('Noise Level', fontsize=12)
-    ax_combined.set_title('Energy Distribution vs Noise Level (Lower energy = more in-distribution)',
-                         fontsize=14, fontweight='bold')
-    ax_combined.grid(True, alpha=0.3, axis='y')
-    plt.setp(ax_combined.xaxis.get_majorticklabels(), rotation=15, ha='right')
+        # Add vertical line for mean
+        ax_combined.axvline(energies.mean(), color=colors[idx % len(colors)],
+                           linestyle='--', linewidth=2.5, alpha=0.8)
+
+    ax_combined.set_ylabel('Density', fontsize=14, fontweight='bold')
+    ax_combined.set_xlabel('Energy E(x) = sum(x * model(x))', fontsize=14, fontweight='bold')
+    ax_combined.set_title('Energy Distributions: Clean vs Noisy Samples\n(Higher noise → Higher energy → Better OOD detection)',
+                         fontsize=15, fontweight='bold', pad=20)
+    ax_combined.legend(fontsize=11, loc='upper right', framealpha=0.9)
+    ax_combined.grid(True, alpha=0.3, linewidth=1.2)
+
+    # Add text annotation
+    ax_combined.text(0.02, 0.98,
+                    '← Lower Energy\n(In-Distribution)',
+                    transform=ax_combined.transAxes,
+                    fontsize=10, verticalalignment='top',
+                    bbox=dict(boxstyle='round', facecolor='lightgreen', alpha=0.5))
+    ax_combined.text(0.98, 0.98,
+                    'Higher Energy →\n(Out-of-Distribution)',
+                    transform=ax_combined.transAxes,
+                    fontsize=10, verticalalignment='top', horizontalalignment='right',
+                    bbox=dict(boxstyle='round', facecolor='lightcoral', alpha=0.5))
 
     plt.suptitle('Out-of-Distribution Detection using Energy Function',
                 fontsize=16, fontweight='bold', y=0.995)
