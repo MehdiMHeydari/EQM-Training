@@ -18,7 +18,7 @@ from tqdm import tqdm
 import h5py
 import argparse
 
-def compute_energy(samples, model, device, batch_size=16):
+def compute_energy(samples, model, device, batch_size=16, clamp_model_output=None):
     """
     Compute energy E(x) = sum(x * model(x)) for each sample.
 
@@ -27,6 +27,7 @@ def compute_energy(samples, model, device, batch_size=16):
         model: Trained EQM model
         device: torch device
         batch_size: Batch size for processing
+        clamp_model_output: Tuple (min, max) to clamp model(x) before energy calculation
 
     Returns:
         energies: numpy array (N,) of energy values
@@ -46,6 +47,11 @@ def compute_energy(samples, model, device, batch_size=16):
 
             # Compute energy: E(x) = sum(x * model(x))
             pred = model(batch)
+
+            # Clamp model output if specified
+            if clamp_model_output is not None:
+                pred = torch.clamp(pred, clamp_model_output[0], clamp_model_output[1])
+
             energy = torch.sum(batch * pred, dim=(1, 2, 3))
 
             energies.append(energy.cpu().numpy())
@@ -151,6 +157,9 @@ def main():
                        help='Device (cuda/cpu)')
     parser.add_argument('--output', type=str, default='energy_comparison.png',
                        help='Output plot filename')
+    parser.add_argument('--clamp_model_output', type=float, nargs=2, default=None,
+                       metavar=('MIN', 'MAX'),
+                       help='Clamp model(x) to [MIN, MAX] before energy calculation (e.g., -5 5)')
 
     args = parser.parse_args()
 
@@ -228,12 +237,17 @@ def main():
     print(f"  Range: [{ground_truth.min():.6f}, {ground_truth.max():.6f}]")
     print(f"  Mean: {ground_truth.mean():.6f}")
 
+    # Convert clamp_model_output to tuple if provided
+    clamp_model_output = tuple(args.clamp_model_output) if args.clamp_model_output is not None else None
+    if clamp_model_output is not None:
+        print(f"\nModel output will be clamped to {clamp_model_output} for energy calculation")
+
     # Compute energies
     print("\nComputing energies for generated samples...")
-    generated_energies = compute_energy(generated_samples, model, device)
+    generated_energies = compute_energy(generated_samples, model, device, clamp_model_output=clamp_model_output)
 
     print("Computing energies for ground truth...")
-    ground_truth_energies = compute_energy(ground_truth, model, device)
+    ground_truth_energies = compute_energy(ground_truth, model, device, clamp_model_output=clamp_model_output)
 
     # Print statistics
     print("\n" + "="*60)
@@ -256,34 +270,91 @@ def main():
     print(f"  Mean diff:     {abs(generated_energies.mean() - ground_truth_energies.mean()):.6f}")
     print(f"  Std diff:      {abs(generated_energies.std() - ground_truth_energies.std()):.6f}")
 
-    # Plot histogram
+    # Plot histogram with improved visualization
     print(f"\nCreating energy comparison plot...")
-    plt.figure(figsize=(10, 6))
+    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
 
-    # Determine common bins for fair comparison
+    # Plot 1: Full range comparison with separate bins for each distribution
+    ax1 = axes[0, 0]
+
+    # Use separate bins for each distribution to show detail
+    gt_bins = np.linspace(ground_truth_energies.min(), ground_truth_energies.max(), 50)
+    gen_bins = np.linspace(generated_energies.min(), generated_energies.max(), 50)
+
+    ax1.hist(ground_truth_energies, bins=gt_bins, alpha=0.7, label='Ground Truth',
+             color='#1f77b4', density=True, edgecolor='black', linewidth=0.5)
+    ax1.hist(generated_energies, bins=gen_bins, alpha=0.7, label='Generated',
+             color='#ff7f0e', density=True, edgecolor='black', linewidth=0.5)
+
+    ax1.axvline(ground_truth_energies.mean(), color='#1f77b4', linestyle='--',
+                linewidth=2.5, label=f'GT Mean: {ground_truth_energies.mean():.1f}')
+    ax1.axvline(generated_energies.mean(), color='#ff7f0e', linestyle='--',
+                linewidth=2.5, label=f'Gen Mean: {generated_energies.mean():.1f}')
+
+    ax1.set_xlabel('Energy E(x) = sum(x * model(x))', fontsize=11)
+    ax1.set_ylabel('Density', fontsize=11)
+    ax1.set_title('Energy Distribution Comparison (Separate Bins)', fontsize=12, fontweight='bold')
+    ax1.legend(fontsize=9, loc='best')
+    ax1.grid(True, alpha=0.3)
+
+    # Plot 2: Zoomed view of generated samples only
+    ax2 = axes[0, 1]
+    ax2.hist(generated_energies, bins=30, alpha=0.8, color='#ff7f0e',
+             edgecolor='black', linewidth=0.5)
+    ax2.axvline(generated_energies.mean(), color='darkred', linestyle='--',
+                linewidth=2.5, label=f'Mean: {generated_energies.mean():.1f}')
+    ax2.axvline(generated_energies.mean() + generated_energies.std(),
+                color='red', linestyle=':', linewidth=2, alpha=0.7,
+                label=f'±1 Std: {generated_energies.std():.1f}')
+    ax2.axvline(generated_energies.mean() - generated_energies.std(),
+                color='red', linestyle=':', linewidth=2, alpha=0.7)
+
+    ax2.set_xlabel('Energy', fontsize=11)
+    ax2.set_ylabel('Count', fontsize=11)
+    ax2.set_title('Generated Samples (Zoomed)', fontsize=12, fontweight='bold')
+    ax2.legend(fontsize=9)
+    ax2.grid(True, alpha=0.3)
+
+    # Plot 3: Box plot comparison
+    ax3 = axes[1, 0]
+    box_data = [ground_truth_energies, generated_energies]
+    bp = ax3.boxplot(box_data, labels=['Ground Truth', 'Generated'],
+                      patch_artist=True, widths=0.6,
+                      medianprops=dict(color='red', linewidth=2.5),
+                      boxprops=dict(facecolor='lightblue', alpha=0.7),
+                      whiskerprops=dict(linewidth=1.5),
+                      capprops=dict(linewidth=1.5))
+
+    # Color the boxes differently
+    bp['boxes'][0].set_facecolor('#1f77b4')
+    bp['boxes'][1].set_facecolor('#ff7f0e')
+
+    ax3.set_ylabel('Energy', fontsize=11)
+    ax3.set_title('Distribution Statistics (Box Plot)', fontsize=12, fontweight='bold')
+    ax3.grid(True, alpha=0.3, axis='y')
+
+    # Plot 4: Overlapping histograms with common bins (original view)
+    ax4 = axes[1, 1]
     all_energies = np.concatenate([generated_energies, ground_truth_energies])
-    bins = np.linspace(all_energies.min(), all_energies.max(), 50)
+    common_bins = np.linspace(all_energies.min(), all_energies.max(), 60)
 
-    plt.hist(ground_truth_energies, bins=bins, alpha=0.6, label='Ground Truth',
-             color='blue', density=True)
-    plt.hist(generated_energies, bins=bins, alpha=0.6, label='Generated',
-             color='red', density=True)
+    ax4.hist(ground_truth_energies, bins=common_bins, alpha=0.6,
+             label='Ground Truth', color='#1f77b4', density=True,
+             edgecolor='black', linewidth=0.3)
+    ax4.hist(generated_energies, bins=common_bins, alpha=0.6,
+             label='Generated', color='#ff7f0e', density=True,
+             edgecolor='black', linewidth=0.3)
 
-    # Add vertical lines for means
-    plt.axvline(ground_truth_energies.mean(), color='blue', linestyle='--',
-                linewidth=2, label=f'GT Mean: {ground_truth_energies.mean():.3f}')
-    plt.axvline(generated_energies.mean(), color='red', linestyle='--',
-                linewidth=2, label=f'Gen Mean: {generated_energies.mean():.3f}')
+    ax4.set_xlabel('Energy', fontsize=11)
+    ax4.set_ylabel('Density', fontsize=11)
+    ax4.set_title('Overlapping Histograms (Common Bins)', fontsize=12, fontweight='bold')
+    ax4.legend(fontsize=9)
+    ax4.grid(True, alpha=0.3)
 
-    plt.xlabel('Energy E(x) = sum(x * model(x))', fontsize=12)
-    plt.ylabel('Density', fontsize=12)
-    plt.title(f'Energy Distribution Comparison (N={args.num_samples})\nMin-Max Normalization [-1, 1]',
-              fontsize=14)
-    plt.legend(fontsize=10)
-    plt.grid(True, alpha=0.3)
-
+    plt.suptitle(f'Energy Distribution Analysis (N={args.num_samples}, Min-Max Normalization [-1, 1])',
+                 fontsize=14, fontweight='bold', y=0.995)
     plt.tight_layout()
-    plt.savefig(args.output, dpi=150)
+    plt.savefig(args.output, dpi=150, bbox_inches='tight')
     print(f"Plot saved to {args.output}")
 
     print("\n" + "="*60)

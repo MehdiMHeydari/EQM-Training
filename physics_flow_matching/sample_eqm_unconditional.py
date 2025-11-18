@@ -23,7 +23,7 @@ from physics_flow_matching.unet.unet_bb import UNetModelWrapper as UNetModel
 
 def sample_unconditional_gradient_descent(model, num_samples, shape, device,
                                           num_steps=100, step_size=0.01, batch_size=16,
-                                          clip_range=(-1, 1)):
+                                          clip_range=(-1, 1), clamp_model_output=None):
     """
     Sample from unconditional EQM model: noise → u(x,y).
 
@@ -36,6 +36,8 @@ def sample_unconditional_gradient_descent(model, num_samples, shape, device,
         step_size: Step size for gradient descent
         batch_size: Batch size for sampling
         clip_range: Tuple (min, max) to clip samples during generation
+        clamp_model_output: Tuple (min, max) to clamp model(x) before energy calculation.
+                           This prevents extreme gradients. Try (-10, 10) or (-5, 5).
 
     Returns:
         samples: Generated solution fields u(x,y) as numpy array
@@ -58,6 +60,11 @@ def sample_unconditional_gradient_descent(model, num_samples, shape, device,
             with torch.enable_grad():
                 # Compute energy E(x) = sum(x * model(x))
                 pred = model(x)
+
+                # Clamp model output to prevent extreme gradients
+                if clamp_model_output is not None:
+                    pred = torch.clamp(pred, clamp_model_output[0], clamp_model_output[1])
+
                 E = torch.sum(x * pred, dim=(1, 2, 3))
 
                 # Compute gradient v = -∇E(x)
@@ -95,6 +102,9 @@ def main():
                         help='Number of gradient descent steps')
     parser.add_argument('--step_size', type=float, default=0.01,
                         help='Gradient descent step size')
+    parser.add_argument('--clamp_model_output', type=float, nargs=2, default=None,
+                        metavar=('MIN', 'MAX'),
+                        help='Clamp model(x) to [MIN, MAX] before energy calculation (e.g., -5 5)')
 
     args = parser.parse_args()
 
@@ -143,6 +153,11 @@ def main():
     sample_shape = tuple(config.unet.dim)  # (C, H, W)
     print(f"Sample shape: {sample_shape}")
 
+    # Convert clamp_model_output to tuple if provided
+    clamp_model_output = tuple(args.clamp_model_output) if args.clamp_model_output is not None else None
+    if clamp_model_output is not None:
+        print(f"Model output will be clamped to {clamp_model_output}")
+
     # Generate samples
     print(f"Generating {args.num_samples} unconditional samples from noise...")
     samples = sample_unconditional_gradient_descent(
@@ -153,7 +168,8 @@ def main():
         num_steps=args.num_steps,
         step_size=args.step_size,
         batch_size=args.batch_size,
-        clip_range=clip_range
+        clip_range=clip_range,
+        clamp_model_output=clamp_model_output
     )
 
     # Save samples
