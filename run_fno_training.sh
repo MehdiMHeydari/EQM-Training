@@ -12,6 +12,7 @@ python train_fno_with_energy.py \
     --lr 1e-3 \
     --mse_weight 0.8 \
     --energy_weight 0.2 \
+    --energy_loss_mode relative \
     --energy_temperature 1.0 \
     --checkpoint_save_path checkpoints/fno_with_energy.pth \
     --output_plot fno_training_curves.png \

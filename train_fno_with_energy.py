@@ -184,13 +184,17 @@ def train_fno_with_energy(args):
     print(f"FNO model parameters: {num_params:,}")
 
     # Initialize combined loss (MSE + Energy regularization)
-    print("\nInitializing combined loss (0.8*MSE + 0.2*Energy)...")
+    print("\nInitializing combined loss (MSE + Energy regularization)...")
+    print(f"Loss formula: {args.mse_weight}*MSE + {args.energy_weight}*Energy({args.energy_loss_mode})")
     criterion = CombinedLoss(
         checkpoint_path=args.eqm_checkpoint,
         config_path=args.eqm_config,
         device=device,
         mse_weight=args.mse_weight,
         energy_weight=args.energy_weight,
+        training_data_path=args.data_path,
+        num_calibration_samples=100,
+        loss_mode=args.energy_loss_mode,
         temperature=args.energy_temperature,
         normalize_inputs=True
     )
@@ -436,8 +440,12 @@ def main():
                        help='Weight for MSE loss')
     parser.add_argument('--energy_weight', type=float, default=0.2,
                        help='Weight for energy regularization')
+    parser.add_argument('--energy_loss_mode', type=str, default='relative',
+                       choices=['relative', 'threshold', 'normalized'],
+                       help='Energy loss mode: relative (penalize deviation from mean), '
+                            'threshold (only penalize outliers), or normalized (scale to [0,1])')
     parser.add_argument('--energy_temperature', type=float, default=1.0,
-                       help='Temperature for energy loss')
+                       help='Temperature for energy loss (lower = sharper penalty)')
 
     # Training
     parser.add_argument('--batch_size', type=int, default=4,
