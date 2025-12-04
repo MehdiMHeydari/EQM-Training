@@ -201,13 +201,19 @@ def train_fno_with_energy(args):
 
     # Optimizer and scheduler
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    scheduler = torch.optim.lr_scheduler.OneCycleLR(
-        optimizer,
-        max_lr=args.lr,
-        epochs=args.epochs,
-        steps_per_epoch=len(train_loader),
-        pct_start=0.3
-    )
+
+    if args.no_scheduler:
+        scheduler = None
+        print("Using constant learning rate (no scheduler)")
+    else:
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer,
+            max_lr=args.lr,
+            epochs=args.epochs,
+            steps_per_epoch=len(train_loader),
+            pct_start=0.3
+        )
+        print("Using OneCycleLR scheduler")
 
     # Training history
     history = {
@@ -251,7 +257,8 @@ def train_fno_with_energy(args):
             if args.max_grad_norm is not None:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
             optimizer.step()
-            scheduler.step()
+            if scheduler is not None:
+                scheduler.step()
 
             # Accumulate losses
             train_loss += loss_dict['total']
@@ -456,6 +463,8 @@ def main():
                        help='Learning rate')
     parser.add_argument('--weight_decay', type=float, default=1e-5,
                        help='Weight decay')
+    parser.add_argument('--no_scheduler', action='store_true',
+                       help='Disable learning rate scheduler (use constant LR)')
     parser.add_argument('--max_grad_norm', type=float, default=None,
                        help='Gradient clipping')
 
