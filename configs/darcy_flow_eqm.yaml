@@ -1,0 +1,50 @@
+device: cuda
+exp_num: 1
+path: "./experiments/darcy_flow_eqm"
+th_seed: 786
+np_seed: 786
+
+unet:
+  dim: [1, 128, 128]  # Darcy flow has 1 channel (solution field), 128x128 spatial
+  out_channels: 1
+  channel_mult: "1, 1, 2, 3, 4"
+  num_channels: 64
+  res_blocks: 2
+  head_chans: 64
+  attn_res: "32, 16, 8"
+  dropout: 0.0
+  new_attn: True
+  film: True
+  class_cond: False
+  num_classes: null
+
+FM:
+  sched: "trunc_decay"
+  lamda: 4.0
+  return_noise: False
+
+dataloader:
+  datapath: "data/2D_DarcyFlow_beta1.0_Train.hdf5"
+  batch_size: 32
+  dataset: DarcyFlow
+  contrastive: False
+  # Unconditional generation: learn noise -> u(x,y) (ignores a(x,y))
+  input_key: "nu"        # Not used - for compatibility only
+  output_key: "tensor"   # x1: Solution field u(x,y) to generate
+  normalize: True        # Apply min-max normalization to [-1, 1] range
+  use_eqm_format: True   # Unconditional format: x0=empty, x1=u(x,y)
+
+optimizer:
+  lr: 1e-4
+
+scheduler:
+  T_max: 100
+  eta_min: 1e-6
+
+train_eps: False
+num_epochs: 100
+print_epoch_int: 1
+save_epoch_int: 10
+print_with_epoch_int: 50
+restart: False
+restart_epoch: null
