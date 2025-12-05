@@ -69,14 +69,15 @@ class EnergyRegularizationLoss(nn.Module):
         )
 
         # Load trained weights
-        checkpoint = torch.load(checkpoint_path, map_location=self.device)
+        checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
         self.energy_model.load_state_dict(checkpoint['model_state_dict'])
         self.energy_model.to(self.device)
         self.energy_model.eval()
 
-        # Freeze energy model parameters
-        for param in self.energy_model.parameters():
-            param.requires_grad = False
+        # NOTE: We do NOT freeze parameters (requires_grad=False) because the UNet
+        # uses gradient checkpointing which requires gradients to flow through.
+        # The energy model parameters are not included in the optimizer,
+        # so they won't be updated during training.
 
         # Load normalization stats if available
         if 'normalization_stats' in checkpoint and normalize_inputs:
