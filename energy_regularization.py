@@ -131,12 +131,13 @@ class EnergyRegularizationLoss(nn.Module):
         if len(data.shape) == 3:
             data = data[:, np.newaxis, :, :]
 
-        # Normalize
-        if self.data_min is not None and self.data_max is not None:
-            data_normalized = 2 * (data - self.data_min.cpu().numpy()) / \
-                             (self.data_max.cpu().numpy() - self.data_min.cpu().numpy() + 1e-8) - 1
-        else:
-            data_normalized = data
+        # ALWAYS normalize to [-1, 1] to match FNO output range
+        # This is critical: FNO outputs are normalized, so energy statistics
+        # must be computed on normalized data to be meaningful
+        data_min = data.min()
+        data_max = data.max()
+        data_normalized = 2 * (data - data_min) / (data_max - data_min + 1e-8) - 1
+        print(f"Normalizing training data: [{data_min:.4f}, {data_max:.4f}] -> [-1, 1]")
 
         # Compute energies
         data_tensor = torch.from_numpy(data_normalized).float().to(self.device)
