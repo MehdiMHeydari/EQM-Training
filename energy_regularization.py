@@ -179,17 +179,25 @@ class EnergyRegularizationLoss(nn.Module):
         Returns:
             energies: Tensor of shape (B,) with energy for each sample
         """
+        # IMPORTANT: Clamp inputs to [-1, 1] range
+        # The energy model was trained on normalized data in this range.
+        # Feeding values outside this range gives garbage gradients that
+        # cause training to diverge. Clamping ensures:
+        # 1. Energy model always sees valid inputs
+        # 2. Gradients are meaningful
+        # 3. MSE loss handles getting predictions into valid range
+        x_clamped = torch.clamp(x, -1.0, 1.0)
+
         if allow_grad:
             # Allow gradients to flow through for proper training signal
-            # Note: energy_model parameters are frozen, so they won't be updated
-            pred = self.energy_model(x)
+            pred = self.energy_model(x_clamped)
         else:
             with torch.no_grad():
-                pred = self.energy_model(x)
+                pred = self.energy_model(x_clamped)
 
         # Energy: E(x) = sum(x * model(x)) over spatial dimensions
         # Shape: (B, C, H, W) -> (B,)
-        energy = torch.sum(x * pred, dim=(1, 2, 3))
+        energy = torch.sum(x_clamped * pred, dim=(1, 2, 3))
 
         return energy
 
