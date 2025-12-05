@@ -144,7 +144,7 @@ class EnergyRegularizationLoss(nn.Module):
             batch_size = 16
             for i in range(0, len(data_tensor), batch_size):
                 batch = data_tensor[i:i+batch_size]
-                batch_energies = self.compute_energy(batch)
+                batch_energies = self.compute_energy(batch, allow_grad=False)
                 energies.append(batch_energies)
             energies = torch.cat(energies)
 
@@ -166,18 +166,25 @@ class EnergyRegularizationLoss(nn.Module):
             return 2 * (x - self.data_min) / (self.data_max - self.data_min + 1e-8) - 1
         return x
 
-    def compute_energy(self, x):
+    def compute_energy(self, x, allow_grad=True):
         """
         Compute energy E(x) = sum(x * model(x)) for each sample.
 
         Args:
             x: Input tensor (B, C, H, W)
+            allow_grad: If True, allow gradients to flow through energy model.
+                        This is needed for training. Set False for inference.
 
         Returns:
             energies: Tensor of shape (B,) with energy for each sample
         """
-        with torch.no_grad():
+        if allow_grad:
+            # Allow gradients to flow through for proper training signal
+            # Note: energy_model parameters are frozen, so they won't be updated
             pred = self.energy_model(x)
+        else:
+            with torch.no_grad():
+                pred = self.energy_model(x)
 
         # Energy: E(x) = sum(x * model(x)) over spatial dimensions
         # Shape: (B, C, H, W) -> (B,)
@@ -252,7 +259,7 @@ class EnergyRegularizationLoss(nn.Module):
         else:
             x_norm = predictions
 
-        energies = self.compute_energy(x_norm)
+        energies = self.compute_energy(x_norm, allow_grad=False)  # No grad needed for monitoring
 
         return {
             'mean': energies.mean().item(),
