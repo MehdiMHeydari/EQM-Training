@@ -196,7 +196,7 @@ def train_fno_with_energy(args):
         num_calibration_samples=100,
         loss_mode=args.energy_loss_mode,
         temperature=args.energy_temperature,
-        normalize_inputs=True
+        normalize_inputs=False  # FNO outputs are already normalized to [-1, 1]
     )
 
     # Optimizer and scheduler
